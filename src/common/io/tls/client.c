@@ -6,180 +6,76 @@ TLS Client
 #include <string.h>
 #include <strings.h>
 
-#include <openssl/conf.h>
-#include <openssl/ssl.h>
 #include <openssl/x509v3.h>
 
 #include "common/crypto/common.h"
 #include "common/debug.h"
 #include "common/log.h"
-#include "common/io/tls/client.h"
+#include "common/io/client.intern.h"
 #include "common/io/io.h"
-#include "common/io/read.intern.h"
-#include "common/io/write.intern.h"
+#include "common/io/tls/client.h"
+#include "common/io/tls/session.h"
 #include "common/memContext.h"
+#include "common/stat.h"
 #include "common/type/object.h"
 #include "common/wait.h"
 
 /***********************************************************************************************************************************
-Statistics
+Io client type
 ***********************************************************************************************************************************/
-static TlsClientStat tlsClientStatLocal;
+STRING_EXTERN(IO_CLIENT_TLS_TYPE_STR,                               IO_CLIENT_TLS_TYPE);
+
+/***********************************************************************************************************************************
+Statistics constants
+***********************************************************************************************************************************/
+STRING_EXTERN(TLS_STAT_CLIENT_STR,                                  TLS_STAT_CLIENT);
+STRING_EXTERN(TLS_STAT_RETRY_STR,                                   TLS_STAT_RETRY);
+STRING_EXTERN(TLS_STAT_SESSION_STR,                                 TLS_STAT_SESSION);
 
 /***********************************************************************************************************************************
 Object type
 ***********************************************************************************************************************************/
-struct TlsClient
+#define TLS_CLIENT_TYPE                                             TlsClient
+#define TLS_CLIENT_PREFIX                                           tlsClient
+
+typedef struct TlsClient
 {
     MemContext *memContext;                                         // Mem context
+    const String *host;                                             // Host to use for peer verification
     TimeMSec timeout;                                               // Timeout for any i/o operation (connect, read, etc.)
     bool verifyPeer;                                                // Should the peer (server) certificate be verified?
-    SocketClient *socket;                                           // Client socket
+    IoClient *ioClient;                                             // Underlying client (usually a SocketClient)
 
     SSL_CTX *context;                                               // TLS context
-    SSL *session;                                                   // TLS session on the socket
+} TlsClient;
 
-    IoRead *read;                                                   // Read interface
-    IoWrite *write;                                                 // Write interface
-};
+/***********************************************************************************************************************************
+Macros for function logging
+***********************************************************************************************************************************/
+static String *
+tlsClientToLog(const THIS_VOID)
+{
+    THIS(const TlsClient);
 
-OBJECT_DEFINE_GET(IoRead, , TLS_CLIENT, IoRead *, read);
-OBJECT_DEFINE_GET(IoWrite, , TLS_CLIENT, IoWrite *, write);
+    return strNewFmt(
+        "{ioClient: %s, timeout: %" PRIu64", verifyPeer: %s}",
+        memContextFreeing(this->memContext) ? NULL_Z : strZ(ioClientToLog(this->ioClient)), this->timeout,
+        cvtBoolToConstZ(this->verifyPeer));
+}
 
-OBJECT_DEFINE_FREE(TLS_CLIENT);
+#define FUNCTION_LOG_TLS_CLIENT_TYPE                                                                                               \
+    TlsClient *
+#define FUNCTION_LOG_TLS_CLIENT_FORMAT(value, buffer, bufferSize)                                                                  \
+    FUNCTION_LOG_STRING_OBJECT_FORMAT(value, tlsClientToLog, buffer, bufferSize)
 
 /***********************************************************************************************************************************
 Free connection
 ***********************************************************************************************************************************/
 OBJECT_DEFINE_FREE_RESOURCE_BEGIN(TLS_CLIENT, LOG, logLevelTrace)
 {
-    SSL_free(this->session);
     SSL_CTX_free(this->context);
 }
 OBJECT_DEFINE_FREE_RESOURCE_END(LOG);
-
-/***********************************************************************************************************************************
-Report TLS errors.  Returns true if the command should continue and false if it should exit.
-***********************************************************************************************************************************/
-static bool
-tlsError(TlsClient *this, int code)
-{
-    FUNCTION_LOG_BEGIN(logLevelTrace);
-        FUNCTION_LOG_PARAM(TLS_CLIENT, this);
-        FUNCTION_LOG_PARAM(INT, code);
-    FUNCTION_LOG_END();
-
-    bool result = false;
-
-    switch (code)
-    {
-        // The connection was closed
-        case SSL_ERROR_ZERO_RETURN:
-        {
-            tlsClientClose(this);
-            break;
-        }
-
-        // Try the read/write again
-        case SSL_ERROR_WANT_READ:
-        case SSL_ERROR_WANT_WRITE:
-        {
-            result = true;
-            break;
-        }
-
-        // A syscall failed (this usually indicates eof)
-        case SSL_ERROR_SYSCALL:
-        {
-            // Get the error before closing so it is not cleared
-            int errNo = errno;
-            tlsClientClose(this);
-
-            // Throw the sys error if there is one
-            THROW_ON_SYS_ERROR(errNo, KernelError, "tls failed syscall");
-
-            break;
-        }
-
-        // Some other tls error that cannot be handled
-        default:
-            THROW_FMT(ServiceError, "tls error [%d]", code);
-    }
-
-    FUNCTION_LOG_RETURN(BOOL, result);
-}
-
-/**********************************************************************************************************************************/
-TlsClient *
-tlsClientNew(SocketClient *socket, TimeMSec timeout, bool verifyPeer, const String *caFile, const String *caPath)
-{
-    FUNCTION_LOG_BEGIN(logLevelDebug)
-        FUNCTION_LOG_PARAM(SOCKET_CLIENT, socket);
-        FUNCTION_LOG_PARAM(TIME_MSEC, timeout);
-        FUNCTION_LOG_PARAM(BOOL, verifyPeer);
-        FUNCTION_LOG_PARAM(STRING, caFile);
-        FUNCTION_LOG_PARAM(STRING, caPath);
-    FUNCTION_LOG_END();
-
-    ASSERT(socket != NULL);
-
-    TlsClient *this = NULL;
-
-    MEM_CONTEXT_NEW_BEGIN("TlsClient")
-    {
-        this = memNew(sizeof(TlsClient));
-
-        *this = (TlsClient)
-        {
-            .memContext = MEM_CONTEXT_NEW(),
-            .socket = sckClientMove(socket, MEM_CONTEXT_NEW()),
-            .timeout = timeout,
-            .verifyPeer = verifyPeer,
-        };
-
-        // Setup TLS context
-        // -------------------------------------------------------------------------------------------------------------------------
-        cryptoInit();
-
-        // Select the TLS method to use.  To maintain compatibility with older versions of OpenSSL we need to use an SSL method,
-        // but SSL versions will be excluded in SSL_CTX_set_options().
-        const SSL_METHOD *method = SSLv23_method();
-        cryptoError(method == NULL, "unable to load TLS method");
-
-        // Create the TLS context
-        this->context = SSL_CTX_new(method);
-        cryptoError(this->context == NULL, "unable to create TLS context");
-
-        memContextCallbackSet(this->memContext, tlsClientFreeResource, this);
-
-        // Exclude SSL versions to only allow TLS and also disable compression
-        SSL_CTX_set_options(this->context, (long)(SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION));
-
-        // Disable auto-retry to prevent SSL_read() from hanging
-        SSL_CTX_clear_mode(this->context, SSL_MODE_AUTO_RETRY);
-
-        // Set location of CA certificates if the server certificate will be verified
-        // -------------------------------------------------------------------------------------------------------------------------
-        if (this->verifyPeer)
-        {
-            // If the user specified a location
-            if (caFile != NULL || caPath != NULL)
-            {
-                cryptoError(
-                    SSL_CTX_load_verify_locations(this->context, strPtr(caFile), strPtr(caPath)) != 1,
-                    "unable to set user-defined CA certificate location");
-            }
-            // Else use the defaults
-            else
-                cryptoError(SSL_CTX_set_default_verify_paths(this->context) != 1, "unable to set default CA certificate location");
-        }
-
-        tlsClientStatLocal.object++;
-    }
-    MEM_CONTEXT_NEW_END();
-
-    FUNCTION_LOG_RETURN(TLS_CLIENT, this);
-}
 
 /***********************************************************************************************************************************
 Convert an ASN1 string used in certificates to a String
@@ -192,10 +88,10 @@ asn1ToStr(ASN1_STRING *nameAsn1)
     FUNCTION_TEST_END();
 
     // The name should not be null
-    if (nameAsn1 == NULL)
+    if (nameAsn1 == NULL)                                                                                           // {vm_covered}
         THROW(CryptoError, "TLS certificate name entry is missing");
 
-    FUNCTION_TEST_RETURN(
+    FUNCTION_TEST_RETURN(                                                                                           // {vm_covered}
         strNewN(
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
             (const char *)ASN1_STRING_data(nameAsn1),
@@ -222,15 +118,15 @@ tlsClientHostVerifyName(const String *host, const String *name)
     ASSERT(name != NULL);
 
     // Reject embedded nulls in certificate common or alternative name to prevent attacks like CVE-2009-4034
-    if (strlen(strPtr(name)) != strSize(name))
+    if (strlen(strZ(name)) != strSize(name))
         THROW(CryptoError, "TLS certificate name contains embedded null");
 
     bool result = false;
 
     // Try an exact match
-    if (strcasecmp(strPtr(name), strPtr(host)) == 0)
+    if (strcasecmp(strZ(name), strZ(host)) == 0)                                                                    // {vm_covered}
     {
-        result = true;
+        result = true;                                                                                              // {vm_covered}
     }
     // Else check if a wildcard certificate matches the host name
     //
@@ -242,11 +138,12 @@ tlsClientHostVerifyName(const String *host, const String *name)
     //
     // This is roughly in line with RFC2818, but contrary to what most browsers appear to be implementing (point 3 being the
     // difference)
-    else if (strPtr(name)[0] == '*' && strPtr(name)[1] == '.' && strSize(name) > 2 && strSize(name) < strSize(host) &&
-             strcasecmp(strPtr(name) + 1, strPtr(host) + strSize(host) - strSize(name) + 1) == 0 &&
-             strChr(host, '.') >= (int)(strSize(host) - strSize(name)))
+    else if (strZ(name)[0] == '*' && strZ(name)[1] == '.' && strSize(name) > 2 &&                                   // {vm_covered}
+             strSize(name) < strSize(host) &&                                                                       // {vm_covered}
+             strcasecmp(strZ(name) + 1, strZ(host) + strSize(host) - strSize(name) + 1) == 0 &&                     // {vm_covered}
+             strChr(host, '.') >= (int)(strSize(host) - strSize(name)))                                             // {vm_covered}
     {
-        result = true;
+        result = true;                                                                                              // {vm_covered}
     }
 
     FUNCTION_LOG_RETURN(BOOL, result);
@@ -270,345 +167,249 @@ tlsClientHostVerify(const String *host, X509 *certificate)
     bool result = false;
 
     // Error if the certificate is NULL
-    if (certificate == NULL)
-        THROW(CryptoError, "No certificate presented by the TLS server");
+    if (certificate == NULL)                                                                                        // {vm_covered}
+        THROW(CryptoError, "No certificate presented by the TLS server");                                           // {vm_covered}
 
-    MEM_CONTEXT_TEMP_BEGIN()
+    MEM_CONTEXT_TEMP_BEGIN()                                                                                        // {vm_covered}
     {
         // First get the subject alternative names from the certificate and compare them against the hostname
-        STACK_OF(GENERAL_NAME) *altNameStack = (STACK_OF(GENERAL_NAME) *)X509_get_ext_d2i(
-            certificate, NID_subject_alt_name, NULL, NULL);
-        bool altNameFound = false;
+        STACK_OF(GENERAL_NAME) *altNameStack = (STACK_OF(GENERAL_NAME) *)X509_get_ext_d2i(                          // {vm_covered}
+            certificate, NID_subject_alt_name, NULL, NULL);                                                         // {vm_covered}
+        bool altNameFound = false;                                                                                  // {vm_covered}
 
-        if (altNameStack)
+        if (altNameStack)                                                                                           // {vm_covered}
         {
-            for (int altNameIdx = 0; altNameIdx < sk_GENERAL_NAME_num(altNameStack); altNameIdx++)
+            for (int altNameIdx = 0; altNameIdx < sk_GENERAL_NAME_num(altNameStack); altNameIdx++)                  // {vm_covered}
             {
-                const GENERAL_NAME *name = sk_GENERAL_NAME_value(altNameStack, altNameIdx);
-                altNameFound = true;
+                const GENERAL_NAME *name = sk_GENERAL_NAME_value(altNameStack, altNameIdx);                         // {vm_covered}
+                altNameFound = true;                                                                                // {vm_covered}
 
-                if (name->type == GEN_DNS)
-                    result = tlsClientHostVerifyName(host, asn1ToStr(name->d.dNSName));
+                if (name->type == GEN_DNS)                                                                          // {vm_covered}
+                    result = tlsClientHostVerifyName(host, asn1ToStr(name->d.dNSName));                             // {vm_covered}
 
-                if (result != false)
-                    break;
+                if (result != false)                                                                                // {vm_covered}
+                    break;                                                                                          // {vm_covered}
             }
 
-            sk_GENERAL_NAME_free(altNameStack);
+            sk_GENERAL_NAME_pop_free(altNameStack, GENERAL_NAME_free);                                              // {vm_covered}
         }
 
         // If no subject alternative name was found then check the common name. Per RFC 2818 and RFC 6125, if the subjectAltName
         // extension of type dNSName is present the CN must be ignored.
-        if (!altNameFound)
+        if (!altNameFound)                                                                                          // {vm_covered}
         {
-            X509_NAME *subjectName = X509_get_subject_name(certificate);
-            CHECK(subjectName != NULL);
+            X509_NAME *subjectName = X509_get_subject_name(certificate);                                            // {vm_covered}
+            CHECK(subjectName != NULL);                                                                             // {vm_covered}
 
-            int commonNameIndex = X509_NAME_get_index_by_NID(subjectName, NID_commonName, -1);
-            CHECK(commonNameIndex >= 0);
+            int commonNameIndex = X509_NAME_get_index_by_NID(subjectName, NID_commonName, -1);                      // {vm_covered}
+            CHECK(commonNameIndex >= 0);                                                                            // {vm_covered}
 
-            result = tlsClientHostVerifyName(
-                host, asn1ToStr(X509_NAME_ENTRY_get_data(X509_NAME_get_entry(subjectName, commonNameIndex))));
+            result = tlsClientHostVerifyName(                                                                       // {vm_covered}
+                host,                                                                                               // {vm_covered}
+                asn1ToStr(X509_NAME_ENTRY_get_data(X509_NAME_get_entry(subjectName, commonNameIndex))));            // {vm_covered}
         }
     }
-    MEM_CONTEXT_TEMP_END();
+    MEM_CONTEXT_TEMP_END();                                                                                         // {vm_covered}
 
-    FUNCTION_LOG_RETURN(BOOL, result);
-}
-
-/***********************************************************************************************************************************
-Read from the TLS session
-***********************************************************************************************************************************/
-size_t
-tlsClientRead(THIS_VOID, Buffer *buffer, bool block)
-{
-    THIS(TlsClient);
-
-    FUNCTION_LOG_BEGIN(logLevelTrace);
-        FUNCTION_LOG_PARAM(TLS_CLIENT, this);
-        FUNCTION_LOG_PARAM(BUFFER, buffer);
-        FUNCTION_LOG_PARAM(BOOL, block);
-    FUNCTION_LOG_END();
-
-    ASSERT(this != NULL);
-    ASSERT(this->session != NULL);
-    ASSERT(buffer != NULL);
-    ASSERT(!bufFull(buffer));
-
-    ssize_t result = 0;
-
-    // If blocking read keep reading until buffer is full
-    do
-    {
-        // If no tls data pending then check the socket
-        if (!SSL_pending(this->session))
-            sckClientReadWait(this->socket);
-
-        // Read and handle errors
-        size_t expectedBytes = bufRemains(buffer);
-        result = SSL_read(this->session, bufRemainsPtr(buffer), (int)expectedBytes);
-
-        if (result <= 0)
-        {
-            // Break if the error indicates that we should not continue trying
-            if (!tlsError(this, SSL_get_error(this->session, (int)result)))
-                break;
-        }
-        // Update amount of buffer used
-        else
-            bufUsedInc(buffer, (size_t)result);
-    }
-    while (block && bufRemains(buffer) > 0);
-
-    FUNCTION_LOG_RETURN(SIZE, (size_t)result);
-}
-
-/***********************************************************************************************************************************
-Write to the tls session
-***********************************************************************************************************************************/
-static bool
-tlsWriteContinue(TlsClient *this, int writeResult, int writeError, size_t writeSize)
-{
-    FUNCTION_LOG_BEGIN(logLevelTrace);
-        FUNCTION_LOG_PARAM(TLS_CLIENT, this);
-        FUNCTION_LOG_PARAM(INT, writeResult);
-        FUNCTION_LOG_PARAM(INT, writeError);
-        FUNCTION_LOG_PARAM(SIZE, writeSize);
-    FUNCTION_LOG_END();
-
-    ASSERT(this != NULL);
-    ASSERT(writeSize > 0);
-
-    bool result = true;
-
-    // Handle errors
-    if (writeResult <= 0)
-    {
-        // If error = SSL_ERROR_NONE then this is the first write attempt so continue
-        if (writeError != SSL_ERROR_NONE)
-        {
-            // Error if the error indicates that we should not continue trying
-            if (!tlsError(this, writeError))
-                THROW_FMT(FileWriteError, "unable to write to tls [%d]", writeError);
-
-            // Wait for the socket to be readable for tls renegotiation
-            sckClientReadWait(this->socket);
-        }
-    }
-    else
-    {
-        if ((size_t)writeResult != writeSize)
-        {
-            THROW_FMT(
-                FileWriteError, "unable to write to tls, write size %d does not match expected size %zu", writeResult, writeSize);
-        }
-
-        result = false;
-    }
-
-    FUNCTION_LOG_RETURN(BOOL, result);
-}
-
-void
-tlsClientWrite(THIS_VOID, const Buffer *buffer)
-{
-    THIS(TlsClient);
-
-    FUNCTION_LOG_BEGIN(logLevelTrace);
-        FUNCTION_LOG_PARAM(TLS_CLIENT, this);
-        FUNCTION_LOG_PARAM(BUFFER, buffer);
-    FUNCTION_LOG_END();
-
-    ASSERT(this != NULL);
-    ASSERT(this->session != NULL);
-    ASSERT(buffer != NULL);
-
-    int result = 0;
-    int error = SSL_ERROR_NONE;
-
-    while (tlsWriteContinue(this, result, error, bufUsed(buffer)))
-    {
-        result = SSL_write(this->session, bufPtrConst(buffer), (int)bufUsed(buffer));
-        error = SSL_get_error(this->session, result);
-    }
-
-    FUNCTION_LOG_RETURN_VOID();
-}
-
-/***********************************************************************************************************************************
-Close the connection
-***********************************************************************************************************************************/
-void
-tlsClientClose(TlsClient *this)
-{
-    FUNCTION_LOG_BEGIN(logLevelTrace);
-        FUNCTION_LOG_PARAM(TLS_CLIENT, this);
-    FUNCTION_LOG_END();
-
-    ASSERT(this != NULL);
-
-    // Close the socket
-    sckClientClose(this->socket);
-
-    // Free the TLS session
-    if (this->session != NULL)
-    {
-        SSL_free(this->session);
-        this->session = NULL;
-    }
-
-    FUNCTION_LOG_RETURN_VOID();
-}
-
-/***********************************************************************************************************************************
-Has session been closed by the server?
-***********************************************************************************************************************************/
-bool
-tlsClientEof(THIS_VOID)
-{
-    THIS(TlsClient);
-
-    FUNCTION_LOG_BEGIN(logLevelTrace);
-        FUNCTION_LOG_PARAM(TLS_CLIENT, this);
-    FUNCTION_LOG_END();
-
-    ASSERT(this != NULL);
-
-    FUNCTION_LOG_RETURN(BOOL, this->session == NULL);
+    FUNCTION_LOG_RETURN(BOOL, result);                                                                              // {vm_covered}
 }
 
 /***********************************************************************************************************************************
 Open connection if this is a new client or if the connection was closed by the server
 ***********************************************************************************************************************************/
-bool
-tlsClientOpen(TlsClient *this)
+static IoSession *
+tlsClientOpen(THIS_VOID)
 {
+    THIS(TlsClient);
+
     FUNCTION_LOG_BEGIN(logLevelTrace)
         FUNCTION_LOG_PARAM(TLS_CLIENT, this);
     FUNCTION_LOG_END();
 
     ASSERT(this != NULL);
 
-    bool result = false;
+    IoSession *result = NULL;
+    SSL *session = NULL;
 
-    if (this->session == NULL)
+    MEM_CONTEXT_TEMP_BEGIN()
     {
-        // Free the read/write interfaces
-        ioReadFree(this->read);
-        this->read = NULL;
-        ioWriteFree(this->write);
-        this->write = NULL;
+        bool retry;
+        Wait *wait = waitNew(this->timeout);
 
-        MEM_CONTEXT_TEMP_BEGIN()
+        do
         {
-            bool connected = false;
-            bool retry;
-            Wait *wait = this->timeout > 0 ? waitNew(this->timeout) : NULL;
+            // Assume there will be no retry
+            retry = false;
 
-            do
+            TRY_BEGIN()
             {
-                // Assume there will be no retry
-                retry = false;
+                // Open the underlying session first since this is mostly likely to fail
+                IoSession *ioSession = ioClientOpen(this->ioClient);
 
-                TRY_BEGIN()
+                // Create internal TLS session. If there is a failure before the TlsSession object is created there may be a leak
+                // of the TLS session but this is likely to result in program termination so it doesn't seem worth coding for.
+                cryptoError((session = SSL_new(this->context)) == NULL, "unable to create TLS session");
+
+                // Set server host name used for validation
+                cryptoError(SSL_set_tlsext_host_name(session, strZ(this->host)) != 1, "unable to set TLS host name");
+
+                // Create the TLS session
+                result = tlsSessionNew(session, ioSession, this->timeout);
+            }
+            CATCH_ANY()
+            {
+                result = NULL;
+
+                // Retry if wait time has not expired
+                if (waitMore(wait))
                 {
-                    // Open the socket
-                    sckClientOpen(this->socket);
+                    LOG_DEBUG_FMT("retry %s: %s", errorTypeName(errorType()), errorMessage());
+                    retry = true;
 
-                    // Negotiate TLS
-                    cryptoError((this->session = SSL_new(this->context)) == NULL, "unable to create TLS context");
-
-                    cryptoError(
-                        SSL_set_tlsext_host_name(this->session, strPtr(sckClientHost(this->socket))) != 1,
-                        "unable to set TLS host name");
-                    cryptoError(
-                        SSL_set_fd(this->session, sckClientFd(this->socket)) != 1, "unable to add socket to TLS context");
-                    cryptoError(SSL_connect(this->session) != 1, "unable to negotiate TLS connection");
-
-                    // Connection was successful
-                    connected = true;
+                    statInc(TLS_STAT_RETRY_STR);
                 }
-                CATCH_ANY()
-                {
-                    // Retry if wait time has not expired
-                    if (wait != NULL && waitMore(wait))
-                    {
-                        LOG_DEBUG_FMT("retry %s: %s", errorTypeName(errorType()), errorMessage());
-                        retry = true;
-
-                        tlsClientStatLocal.retry++;
-                    }
-
-                    tlsClientClose(this);
-                }
-                TRY_END();
+                else
+                    RETHROW();
             }
-            while (!connected && retry);
-
-            if (!connected)
-                RETHROW();
+            TRY_END();
         }
-        MEM_CONTEXT_TEMP_END();
+        while (retry);
 
-        // Verify that the certificate presented by the server is valid
-        if (this->verifyPeer)
+        ioSessionMove(result, memContextPrior());
+    }
+    MEM_CONTEXT_TEMP_END();
+
+    statInc(TLS_STAT_SESSION_STR);
+
+    // Verify that the certificate presented by the server is valid
+    if (this->verifyPeer)                                                                                           // {vm_covered}
+    {
+        // Verify that the chain of trust leads to a valid CA
+        long int verifyResult = SSL_get_verify_result(session);                                                     // {vm_covered}
+
+        if (verifyResult != X509_V_OK)                                                                              // {vm_covered}
         {
-            // Verify that the chain of trust leads to a valid CA
-            long int verifyResult = SSL_get_verify_result(this->session);
-
-            if (verifyResult != X509_V_OK)
-            {
-                THROW_FMT(
-                    CryptoError, "unable to verify certificate presented by '%s:%u': [%ld] %s",
-                    strPtr(sckClientHost(this->socket)), sckClientPort(this->socket), verifyResult,
-                    X509_verify_cert_error_string(verifyResult));
-            }
-
-            // Verify that the hostname appears in the certificate
-            X509 *certificate = SSL_get_peer_certificate(this->session);
-            bool nameResult = tlsClientHostVerify(sckClientHost(this->socket), certificate);
-            X509_free(certificate);
-
-            if (!nameResult)
-            {
-                THROW_FMT(
-                    CryptoError,
-                    "unable to find hostname '%s' in certificate common name or subject alternative names",
-                    strPtr(sckClientHost(this->socket)));
-            }
+            THROW_FMT(                                                                                              // {vm_covered}
+                CryptoError, "unable to verify certificate presented by '%s': [%ld] %s",                            // {vm_covered}
+                strZ(ioClientName(this->ioClient)), verifyResult, X509_verify_cert_error_string(verifyResult));     // {vm_covered}
         }
 
-        MEM_CONTEXT_BEGIN(this->memContext)
+        // Verify that the hostname appears in the certificate
+        X509 *certificate = SSL_get_peer_certificate(session);                                                      // {vm_covered}
+        bool nameResult = tlsClientHostVerify(this->host, certificate);                                             // {vm_covered}
+        X509_free(certificate);                                                                                     // {vm_covered}
+
+        if (!nameResult)                                                                                            // {vm_covered}
         {
-            // Create read and write interfaces
-            this->write = ioWriteNewP(this, .write = tlsClientWrite);
-            ioWriteOpen(this->write);
-            this->read = ioReadNewP(this, .block = true, .eof = tlsClientEof, .read = tlsClientRead);
-            ioReadOpen(this->read);
+            THROW_FMT(                                                                                              // {vm_covered}
+                CryptoError,                                                                                        // {vm_covered}
+                "unable to find hostname '%s' in certificate common name or subject alternative names",             // {vm_covered}
+                strZ(this->host));                                                                                  // {vm_covered}
         }
-        MEM_CONTEXT_END();
-
-        tlsClientStatLocal.session++;
-        result = true;
     }
 
-    FUNCTION_LOG_RETURN(BOOL, result);
+    FUNCTION_LOG_RETURN(IO_SESSION, result);
 }
 
 /**********************************************************************************************************************************/
-String *
-tlsClientStatStr(void)
+static const String *
+tlsClientName(THIS_VOID)
 {
-    FUNCTION_TEST_VOID();
+    THIS(TlsClient);
 
-    String *result = NULL;
+    FUNCTION_TEST_BEGIN();
+        FUNCTION_TEST_PARAM(TLS_CLIENT, this);
+    FUNCTION_TEST_END();
 
-    if (tlsClientStatLocal.object > 0)
+    ASSERT(this != NULL);
+
+    FUNCTION_TEST_RETURN(ioClientName(this->ioClient));
+}
+
+/**********************************************************************************************************************************/
+static const IoClientInterface tlsClientInterface =
+{
+    .type = &IO_CLIENT_TLS_TYPE_STR,
+    .name = tlsClientName,
+    .open = tlsClientOpen,
+    .toLog = tlsClientToLog,
+};
+
+IoClient *
+tlsClientNew(IoClient *ioClient, const String *host, TimeMSec timeout, bool verifyPeer, const String *caFile, const String *caPath)
+{
+    FUNCTION_LOG_BEGIN(logLevelDebug)
+        FUNCTION_LOG_PARAM(IO_CLIENT, ioClient);
+        FUNCTION_LOG_PARAM(STRING, host);
+        FUNCTION_LOG_PARAM(TIME_MSEC, timeout);
+        FUNCTION_LOG_PARAM(BOOL, verifyPeer);
+        FUNCTION_LOG_PARAM(STRING, caFile);
+        FUNCTION_LOG_PARAM(STRING, caPath);
+    FUNCTION_LOG_END();
+
+    ASSERT(ioClient != NULL);
+
+    IoClient *this = NULL;
+
+    MEM_CONTEXT_NEW_BEGIN("TlsClient")
     {
-        result = strNewFmt(
-            "tls statistics: objects %" PRIu64 ", sessions %" PRIu64 ", retries %" PRIu64, tlsClientStatLocal.object,
-            tlsClientStatLocal.session, tlsClientStatLocal.retry);
-    }
+        TlsClient *driver = memNew(sizeof(TlsClient));
 
-    FUNCTION_TEST_RETURN(result);
+        *driver = (TlsClient)
+        {
+            .memContext = MEM_CONTEXT_NEW(),
+            .ioClient = ioClientMove(ioClient, MEM_CONTEXT_NEW()),
+            .host = strDup(host),
+            .timeout = timeout,
+            .verifyPeer = verifyPeer,
+        };
+
+        // Setup TLS context
+        // -------------------------------------------------------------------------------------------------------------------------
+        cryptoInit();
+
+        // Select the TLS method to use.  To maintain compatibility with older versions of OpenSSL we need to use an SSL method,
+        // but SSL versions will be excluded in SSL_CTX_set_options().
+        const SSL_METHOD *method = SSLv23_method();
+        cryptoError(method == NULL, "unable to load TLS method");
+
+        // Create the TLS context
+        driver->context = SSL_CTX_new(method);
+        cryptoError(driver->context == NULL, "unable to create TLS context");
+
+        memContextCallbackSet(driver->memContext, tlsClientFreeResource, driver);
+
+        // Exclude SSL versions to only allow TLS and also disable compression
+        SSL_CTX_set_options(driver->context, (long)(SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION));
+
+        // Disable auto-retry to prevent SSL_read() from hanging
+        SSL_CTX_clear_mode(driver->context, SSL_MODE_AUTO_RETRY);
+
+        // Set location of CA certificates if the server certificate will be verified
+        // -------------------------------------------------------------------------------------------------------------------------
+        if (driver->verifyPeer)
+        {
+            // If the user specified a location
+            if (caFile != NULL || caPath != NULL)                                                                   // {vm_covered}
+            {
+                cryptoError(                                                                                        // {vm_covered}
+                    SSL_CTX_load_verify_locations(driver->context, strZNull(caFile), strZNull(caPath)) != 1,        // {vm_covered}
+                    "unable to set user-defined CA certificate location");                                          // {vm_covered}
+            }
+            // Else use the defaults
+            else
+            {
+                cryptoError(
+                    SSL_CTX_set_default_verify_paths(driver->context) != 1, "unable to set default CA certificate location");
+            }
+        }
+
+        statInc(TLS_STAT_CLIENT_STR);
+
+        // Create client interface
+        this = ioClientNew(driver, &tlsClientInterface);
+    }
+    MEM_CONTEXT_NEW_END();
+
+    FUNCTION_LOG_RETURN(IO_CLIENT, this);
 }

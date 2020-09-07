@@ -40,6 +40,8 @@ There should not be any code outside the HARNESS_FORK_CHILD_BEGIN/END() and HARN
 
 #include <common/fork.h>
 
+#include <common/harnessLog.h>
+
 /***********************************************************************************************************************************
 Define the max number of child processes allowed
 ***********************************************************************************************************************************/
@@ -60,47 +62,47 @@ Return the process index of the child (i.e. the index in the total)
 /***********************************************************************************************************************************
 Return the id of the child process, 0 if in the child process
 ***********************************************************************************************************************************/
-#define HARNESS_FORK_PROCESS_ID(processIdx)                                                                                         \
+#define HARNESS_FORK_PROCESS_ID(processIdx)                                                                                        \
     HARNESS_FORK_processIdList[processIdx]
 
 /***********************************************************************************************************************************
 Return the pipe for the child process
 ***********************************************************************************************************************************/
-#define HARNESS_FORK_PIPE(processIdx)                                                                                               \
+#define HARNESS_FORK_PIPE(processIdx)                                                                                              \
     HARNESS_FORK_pipe[processIdx]
 
 /***********************************************************************************************************************************
 Is the pipe required for this child process?
 ***********************************************************************************************************************************/
-#define HARNESS_FORK_PIPE_REQUIRED(processIdx)                                                                                      \
+#define HARNESS_FORK_PIPE_REQUIRED(processIdx)                                                                                     \
     HARNESS_FORK_pipeRequired[processIdx]
 
 /***********************************************************************************************************************************
-Get read/write pipe handles
+Get read/write pipe file descriptors
 ***********************************************************************************************************************************/
-#define HARNESS_FORK_CHILD_READ_PROCESS(processIdx)                                                                                 \
+#define HARNESS_FORK_CHILD_READ_PROCESS(processIdx)                                                                                \
     HARNESS_FORK_PIPE(processIdx)[1][0]
 
 #define HARNESS_FORK_CHILD_READ()                                                                                                  \
     HARNESS_FORK_CHILD_READ_PROCESS(HARNESS_FORK_PROCESS_IDX())
 
-#define HARNESS_FORK_CHILD_WRITE_PROCESS(processIdx)                                                                                \
+#define HARNESS_FORK_CHILD_WRITE_PROCESS(processIdx)                                                                               \
     HARNESS_FORK_PIPE(processIdx)[0][1]
 
 #define HARNESS_FORK_CHILD_WRITE()                                                                                                 \
     HARNESS_FORK_CHILD_WRITE_PROCESS(HARNESS_FORK_PROCESS_IDX())
 
-#define HARNESS_FORK_PARENT_READ_PROCESS(processIdx)                                                                                \
+#define HARNESS_FORK_PARENT_READ_PROCESS(processIdx)                                                                               \
     HARNESS_FORK_PIPE(processIdx)[0][0]
 
-#define HARNESS_FORK_PARENT_WRITE_PROCESS(processIdx)                                                                               \
+#define HARNESS_FORK_PARENT_WRITE_PROCESS(processIdx)                                                                              \
     HARNESS_FORK_PIPE(processIdx)[1][1]
 
 /***********************************************************************************************************************************
 At the end of the HARNESS_FORK block the parent will wait for the child to exit.  By default an exit code of 0 is expected but that
 can be modified when the child begins.
 ***********************************************************************************************************************************/
-#define HARNESS_FORK_CHILD_EXPECTED_EXIT_STATUS(processIdx)                                                                         \
+#define HARNESS_FORK_CHILD_EXPECTED_EXIT_STATUS(processIdx)                                                                        \
     HARNESS_FORK_expectedExitStatus[processIdx]
 
 /***********************************************************************************************************************************
@@ -140,6 +142,9 @@ Create a child process
         if (HARNESS_FORK_PROCESS_ID(HARNESS_FORK_PROCESS_TOTAL()) == 0)                                                            \
         {                                                                                                                          \
             unsigned int HARNESS_FORK_PROCESS_IDX() = HARNESS_FORK_PROCESS_TOTAL();                                                \
+                                                                                                                                   \
+            /* Change log process id to aid in debugging */                                                                        \
+            hrnLogProcessIdSet(HARNESS_FORK_PROCESS_IDX() + 1);                                                                                                 \
                                                                                                                                    \
             if (pipeRequired)                                                                                                      \
             {                                                                                                                      \
@@ -200,7 +205,11 @@ End the fork block and check exit status for all child processes
                 THROW_SYS_ERROR_FMT(AssertError, "unable to find child process %u", processIdx);                                   \
                                                                                                                                    \
             if (WEXITSTATUS(processStatus) != HARNESS_FORK_CHILD_EXPECTED_EXIT_STATUS(processIdx))                                 \
-                THROW_FMT(AssertError, "child %u exited with error %d", processIdx, WEXITSTATUS(processStatus));                   \
+            {                                                                                                                      \
+                THROW_FMT(                                                                                                         \
+                    AssertError, "child %u exited with error %d but expected %d", processIdx, WEXITSTATUS(processStatus),          \
+                    HARNESS_FORK_CHILD_EXPECTED_EXIT_STATUS(processIdx));                                                          \
+            }                                                                                                                      \
         }                                                                                                                          \
     }                                                                                                                              \
     while (0)

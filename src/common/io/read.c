@@ -138,20 +138,23 @@ ioReadInternal(IoRead *this, Buffer *buffer, bool block)
         else
         {
             // Read if not EOF
-            if (!ioReadEofDriver(this))
+            if (this->input != NULL)
             {
-                bufUsedZero(this->input);
+                if (!ioReadEofDriver(this))
+                {
+                    bufUsedZero(this->input);
 
-                // If blocking then limit the amount of data requested
-                if (ioReadBlock(this) && bufRemains(this->input) > bufRemains(buffer))
-                    bufLimitSet(this->input, bufRemains(buffer));
+                    // If blocking then limit the amount of data requested
+                    if (ioReadBlock(this) && bufRemains(this->input) > bufRemains(buffer))
+                        bufLimitSet(this->input, bufRemains(buffer));
 
-                this->interface.read(this->driver, this->input, block);
-                bufLimitClear(this->input);
+                    this->interface.read(this->driver, this->input, block);
+                    bufLimitClear(this->input);
+                }
+                // Set input to NULL and flush (no need to actually free the buffer here as it will be freed with the mem context)
+                else
+                    this->input = NULL;
             }
-            // Set input to NULL and flush (no need to actually free the buffer here as it will be freed with the mem context)
-            else
-                this->input = NULL;
 
             // Process the input buffer (or flush if NULL)
             if (this->input == NULL || bufUsed(this->input) > 0)
@@ -292,6 +295,25 @@ ioReadLine(IoRead *this)
 }
 
 /**********************************************************************************************************************************/
+bool
+ioReadReady(IoRead *this, IoReadReadyParam param)
+{
+    FUNCTION_LOG_BEGIN(logLevelTrace);
+        FUNCTION_LOG_PARAM(IO_READ, this);
+        FUNCTION_LOG_PARAM(BOOL, param.error);
+    FUNCTION_LOG_END();
+
+    ASSERT(this != NULL);
+
+    bool result = true;
+
+    if (this->interface.ready != NULL)
+        result = this->interface.ready(this->driver, param.error);
+
+    FUNCTION_LOG_RETURN(BOOL, result);
+}
+
+/**********************************************************************************************************************************/
 void
 ioReadClose(IoRead *this)
 {
@@ -371,7 +393,7 @@ ioReadFilterGroup(const IoRead *this)
 
 /**********************************************************************************************************************************/
 int
-ioReadHandle(const IoRead *this)
+ioReadFd(const IoRead *this)
 {
     FUNCTION_LOG_BEGIN(logLevelTrace);
         FUNCTION_LOG_PARAM(IO_READ, this);
@@ -379,7 +401,7 @@ ioReadHandle(const IoRead *this)
 
     ASSERT(this != NULL);
 
-    FUNCTION_LOG_RETURN(INT, this->interface.handle == NULL ? -1 : this->interface.handle(this->driver));
+    FUNCTION_LOG_RETURN(INT, this->interface.fd == NULL ? -1 : this->interface.fd(this->driver));
 }
 
 /**********************************************************************************************************************************/

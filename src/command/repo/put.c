@@ -7,7 +7,7 @@ Repository Put Command
 
 #include "common/crypto/cipherBlock.h"
 #include "common/debug.h"
-#include "common/io/handleRead.h"
+#include "common/io/fdRead.h"
 #include "common/io/io.h"
 #include "common/log.h"
 #include "common/memContext.h"
@@ -44,7 +44,7 @@ storagePutProcess(IoRead *source)
             if (repoCipherType != cipherTypeNone)
             {
                 // Check for a passphrase parameter
-                const String *cipherPass = cfgOptionStr(cfgOptCipherPass);
+                const String *cipherPass = cfgOptionStrNull(cfgOptCipherPass);
 
                 // If not passed as a parameter use the repo passphrase
                 if (cipherPass == NULL)
@@ -88,7 +88,7 @@ cmdStoragePut(void)
 
     MEM_CONTEXT_TEMP_BEGIN()
     {
-        storagePutProcess(ioHandleReadNew(STRDEF("stdin"), STDIN_FILENO, IO_TIMEOUT_DEFAULT));
+        storagePutProcess(ioFdReadNew(STRDEF("stdin"), STDIN_FILENO, ioTimeoutMs()));
     }
     MEM_CONTEXT_TEMP_END();
 

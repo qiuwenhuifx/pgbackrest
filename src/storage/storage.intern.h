@@ -1,5 +1,14 @@
 /***********************************************************************************************************************************
 Storage Interface Internal
+
+Storage drivers are implemented using this interface.
+
+The interface has required and optional functions. Currently the optional functions are only implemented by the Posix driver which
+can store either a repository or a PostgreSQL cluster. Drivers that are intended to store repositories only need to implement the
+required functions.
+
+The behavior of required functions is further modified by storage features defined by the StorageFeature enum. Details are included
+in the description of each function.
 ***********************************************************************************************************************************/
 #ifndef STORAGE_STORAGE_INTERN_H
 #define STORAGE_STORAGE_INTERN_H
@@ -24,9 +33,6 @@ Error messages
 
 #define STORAGE_ERROR_INFO                                          "unable to get info for path/file '%s'"
 #define STORAGE_ERROR_INFO_MISSING                                  "unable to get info for missing path/file '%s'"
-
-#define STORAGE_ERROR_LIST                                          "unable to list files for path '%s'"
-#define STORAGE_ERROR_LIST_MISSING                                  "unable to list files for missing path '%s'"
 
 #define STORAGE_ERROR_LIST_INFO                                     "unable to list file info for path '%s'"
 #define STORAGE_ERROR_LIST_INFO_MISSING                             "unable to list file info for missing path '%s'"
@@ -53,19 +59,12 @@ typedef String *StoragePathExpressionCallback(const String *expression, const St
 /***********************************************************************************************************************************
 Required interface functions
 ***********************************************************************************************************************************/
-// Does a file exist? This function is only for files, not paths.
-typedef struct StorageInterfaceExistsParam
-{
-    VAR_PARAM_HEADER;
-} StorageInterfaceExistsParam;
-
-typedef bool StorageInterfaceExists(void *thisVoid, const String *file, StorageInterfaceExistsParam param);
-
-#define storageInterfaceExistsP(thisVoid, file, ...)                                                                               \
-    STORAGE_COMMON_INTERFACE(thisVoid).exists(thisVoid, file, (StorageInterfaceExistsParam){VAR_PARAM_INIT, __VA_ARGS__})
-
-// ---------------------------------------------------------------------------------------------------------------------------------
-// Get information about a file
+// Get information about a file/link/path
+//
+// The level parameter controls the amount of information that will be returned. See the StorageInfo type and StorageInfoLevel enum
+// for details about information that must be provided at each level. The driver should only return the amount of information
+// requested even if more is available. All drivers must implement the storageInfoLevelExists and storageInfoLevelBasic levels. Only
+// drivers with the storageFeatureInfoDetail feature must implement the storageInfoLevelDetail level.
 typedef struct StorageInterfaceInfoParam
 {
     VAR_PARAM_HEADER;
@@ -74,25 +73,11 @@ typedef struct StorageInterfaceInfoParam
     bool followLink;
 } StorageInterfaceInfoParam;
 
-typedef StorageInfo StorageInterfaceInfo(void *thisVoid, const String *file, StorageInterfaceInfoParam param);
+typedef StorageInfo StorageInterfaceInfo(
+    void *thisVoid, const String *file, StorageInfoLevel level, StorageInterfaceInfoParam param);
 
-#define storageInterfaceInfoP(thisVoid, file, ...)                                                                                 \
-    STORAGE_COMMON_INTERFACE(thisVoid).info(thisVoid, file, (StorageInterfaceInfoParam){VAR_PARAM_INIT, __VA_ARGS__})
-
-// ---------------------------------------------------------------------------------------------------------------------------------
-// Get a list of files
-typedef struct StorageInterfaceListParam
-{
-    VAR_PARAM_HEADER;
-
-    // Regular expression used to filter the results
-    const String *expression;
-} StorageInterfaceListParam;
-
-typedef StringList *StorageInterfaceList(void *thisVoid, const String *path, StorageInterfaceListParam param);
-
-#define storageInterfaceListP(thisVoid, path, ...)                                                                                 \
-    STORAGE_COMMON_INTERFACE(thisVoid).list(thisVoid, path, (StorageInterfaceListParam){VAR_PARAM_INIT, __VA_ARGS__})
+#define storageInterfaceInfoP(thisVoid, file, level, ...)                                                                          \
+    STORAGE_COMMON_INTERFACE(thisVoid).info(thisVoid, file, level, (StorageInterfaceInfoParam){VAR_PARAM_INIT, __VA_ARGS__})
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Create a file read object.  The file should not be opened immediately -- open() will be called on the IoRead interface when the
@@ -101,8 +86,7 @@ typedef struct StorageInterfaceNewReadParam
 {
     VAR_PARAM_HEADER;
 
-    // Is the file compressible?  This is useful when the file must be moved across a network and some temporary compression is
-    // helpful.
+    // Is the file compressible? This is used when the file must be moved across a network and temporary compression is helpful.
     bool compressible;
 
     // Limit bytes read from the file. NULL for no limit.
@@ -141,12 +125,11 @@ typedef struct StorageInterfaceNewWriteParam
     bool syncFile;
     bool syncPath;
 
-    // Ensure the file written atomically.  If this is false it's OK to write atomically if that's all the storage supperts
-    // (e.g. S3).  Non-atomic writes are used in some places where there is a performance advantage and atomicity is not needed.
+    // Ensure the file is written atomically. If this is false it's OK to write atomically if that's all the storage supports
+    // (e.g. S3). Non-atomic writes are used in some places where there is a performance advantage and atomicity is not needed.
     bool atomic;
 
-    // Is the file compressible?  This is useful when the file must be moved across a network and some temporary compression is
-    // helpful.
+    // Is the file compressible?  This is used when the file must be moved across a network and temporary compression is helpful.
     bool compressible;
 } StorageInterfaceNewWriteParam;
 
@@ -157,17 +140,29 @@ typedef StorageWrite *StorageInterfaceNewWrite(void *thisVoid, const String *fil
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Get info for a path and all paths/files in the path (does not recurse)
+//
+// See storageInterfaceInfoP() for usage of the level parameter.
 typedef struct StorageInterfaceInfoListParam
 {
     VAR_PARAM_HEADER;
+
+    // Regular expression used to filter the results. The expression is always checked in the callback passed to
+    // storageInterfaceInfoListP() so checking the expression in the driver is entirely optional. The driver should only use the
+    // expression if it can improve performance or limit network transfer.
+    //
+    // Partial matching of the expression is fine as long as nothing that should match is excluded, e.g. it is OK to prefix match
+    // using the prefix returned from regExpPrefix(). This may cause extra results to be sent to the callback but won't exclude
+    // anything that matches the expression exactly.
+    const String *expression;
 } StorageInterfaceInfoListParam;
 
 typedef bool StorageInterfaceInfoList(
-    void *thisVoid, const String *path, StorageInfoListCallback callback, void *callbackData, StorageInterfaceInfoListParam param);
+    void *thisVoid, const String *path, StorageInfoLevel level, StorageInfoListCallback callback, void *callbackData,
+    StorageInterfaceInfoListParam param);
 
-#define storageInterfaceInfoListP(thisVoid, path, callback, callbackData, ...)                                                     \
+#define storageInterfaceInfoListP(thisVoid, path, level, callback, callbackData, ...)                                              \
     STORAGE_COMMON_INTERFACE(thisVoid).infoList(                                                                                   \
-        thisVoid, path, callback, callbackData, (StorageInterfaceInfoListParam){VAR_PARAM_INIT, __VA_ARGS__})
+        thisVoid, path, level, callback, callbackData, (StorageInterfaceInfoListParam){VAR_PARAM_INIT, __VA_ARGS__})
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Remove a path (and optionally recurse)
@@ -200,7 +195,7 @@ typedef void StorageInterfaceRemove(void *thisVoid, const String *file, StorageI
 /***********************************************************************************************************************************
 Optional interface functions
 ***********************************************************************************************************************************/
-// Move a file atomically
+// Move a path/file atomically
 typedef struct StorageInterfaceMoveParam
 {
     VAR_PARAM_HEADER;
@@ -228,18 +223,6 @@ typedef void StorageInterfacePathCreate(
         thisVoid, path, errorOnExists, noParentCreate, mode, (StorageInterfacePathCreateParam){VAR_PARAM_INIT, __VA_ARGS__})
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// Does a path exist?
-typedef struct StorageInterfacePathExistsParam
-{
-    VAR_PARAM_HEADER;
-} StorageInterfacePathExistsParam;
-
-typedef bool StorageInterfacePathExists(void *thisVoid, const String *path, StorageInterfacePathExistsParam param);
-
-#define storageInterfacePathExistsP(thisVoid, path, ...)                                                                           \
-    STORAGE_COMMON_INTERFACE(thisVoid).pathExists(thisVoid, path, (StorageInterfacePathExistsParam){VAR_PARAM_INIT, __VA_ARGS__})
-
-// ---------------------------------------------------------------------------------------------------------------------------------
 // Sync a path
 typedef struct StorageInterfacePathSyncParam
 {
@@ -260,10 +243,8 @@ typedef struct StorageInterface
     uint64_t feature;
 
     // Required functions
-    StorageInterfaceExists *exists;
     StorageInterfaceInfo *info;
     StorageInterfaceInfoList *infoList;
-    StorageInterfaceList *list;
     StorageInterfaceNewRead *newRead;
     StorageInterfaceNewWrite *newWrite;
     StorageInterfacePathRemove *pathRemove;
@@ -272,7 +253,6 @@ typedef struct StorageInterface
     // Optional functions
     StorageInterfaceMove *move;
     StorageInterfacePathCreate *pathCreate;
-    StorageInterfacePathExists *pathExists;
     StorageInterfacePathSync *pathSync;
 } StorageInterface;
 
@@ -302,10 +282,10 @@ typedef struct StorageCommon
 /***********************************************************************************************************************************
 Getters/Setters
 ***********************************************************************************************************************************/
-// Get the storage driver
+// Storage driver
 void *storageDriver(const Storage *this);
 
-// Get the storage interface
+// Storage interface
 StorageInterface storageInterface(const Storage *this);
 
 /***********************************************************************************************************************************

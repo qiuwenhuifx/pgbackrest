@@ -4,19 +4,15 @@ Socket Common Functions
 #include "build.auto.h"
 
 #include <fcntl.h>
-
-#ifdef __FreeBSD__
-#include <netinet/in.h>
-#endif
-
-#ifdef __linux__
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#endif
+#include <sys/socket.h>
 
 #include "common/debug.h"
+#include "common/io/fd.h"
 #include "common/io/socket/common.h"
 #include "common/log.h"
+#include "common/wait.h"
 
 /***********************************************************************************************************************************
 Local variables
@@ -24,6 +20,8 @@ Local variables
 static struct SocketLocal
 {
     bool init;                                                      // sckInit() has been called
+
+    bool block;                                                     // Use blocking mode socket
 
     bool keepAlive;                                                 // Are socket keep alives enabled?
     int tcpKeepAliveCount;                                          // TCP keep alive count (0 disables)
@@ -33,9 +31,10 @@ static struct SocketLocal
 
 /**********************************************************************************************************************************/
 void
-sckInit(bool keepAlive, int tcpKeepAliveCount, int tcpKeepAliveIdle, int tcpKeepAliveInterval)
+sckInit(bool block, bool keepAlive, int tcpKeepAliveCount, int tcpKeepAliveIdle, int tcpKeepAliveInterval)
 {
     FUNCTION_LOG_BEGIN(logLevelDebug);
+        FUNCTION_LOG_PARAM(BOOL, block);
         FUNCTION_LOG_PARAM(BOOL, keepAlive);
         FUNCTION_LOG_PARAM(INT, tcpKeepAliveCount);
         FUNCTION_LOG_PARAM(INT, tcpKeepAliveIdle);
@@ -47,6 +46,7 @@ sckInit(bool keepAlive, int tcpKeepAliveCount, int tcpKeepAliveIdle, int tcpKeep
     ASSERT(tcpKeepAliveInterval >= 0);
 
     socketLocal.init = true;
+    socketLocal.block = block;
     socketLocal.keepAlive = keepAlive;
     socketLocal.tcpKeepAliveCount = tcpKeepAliveCount;
     socketLocal.tcpKeepAliveIdle = tcpKeepAliveIdle;
@@ -73,6 +73,15 @@ sckOptionSet(int fd)
     THROW_ON_SYS_ERROR(
         setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &socketValue, sizeof(int)) == -1, ProtocolError, "unable set TCP_NODELAY");
 #endif
+
+    // Put the socket in non-blocking mode
+    if (!socketLocal.block)
+    {
+        int flags;
+
+        THROW_ON_SYS_ERROR((flags = fcntl(fd, F_GETFL)) == -1, ProtocolError, "unable to get flags");
+        THROW_ON_SYS_ERROR(fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1, ProtocolError, "unable to set O_NONBLOCK");
+    }
 
     // Automatically close the socket (in the child process) on a successful execve() call. Connections are never shared between
     // processes so there is no reason to leave them open.
@@ -125,4 +134,53 @@ sckOptionSet(int fd)
     }
 
     FUNCTION_TEST_RETURN_VOID();
+}
+
+/**********************************************************************************************************************************/
+static bool
+sckConnectInProgress(int errNo)
+{
+    return errNo == EINPROGRESS || errNo == EINTR;
+}
+
+void
+sckConnect(int fd, const String *host, unsigned int port, const struct addrinfo *hostAddress, TimeMSec timeout)
+{
+    FUNCTION_LOG_BEGIN(logLevelTrace);
+        FUNCTION_LOG_PARAM(INT, fd);
+        FUNCTION_LOG_PARAM(STRING, host);
+        FUNCTION_LOG_PARAM(UINT, port);
+        FUNCTION_LOG_PARAM_P(VOID, hostAddress);
+        FUNCTION_LOG_PARAM(TIME_MSEC, timeout);
+    FUNCTION_LOG_END();
+
+    ASSERT(host != NULL);
+    ASSERT(hostAddress != NULL);
+
+    // Attempt connection
+    if (connect(fd, hostAddress->ai_addr, hostAddress->ai_addrlen) == -1)
+    {
+        // Save the error
+        int errNo = errno;
+
+        // The connection has started but since we are in non-blocking mode it has not completed yet
+        if (sckConnectInProgress(errNo))
+        {
+            // Wait for write-ready
+            if (!fdReadyWrite(fd, timeout))
+                THROW_FMT(HostConnectError, "timeout connecting to '%s:%u'", strZ(host), port);
+
+            // Check for success or error. If the connection was successful this will set errNo to 0.
+            socklen_t errNoLen = sizeof(errNo);
+
+            THROW_ON_SYS_ERROR(
+                getsockopt(fd, SOL_SOCKET, SO_ERROR, &errNo, &errNoLen) == -1, HostConnectError, "unable to get socket error");
+        }
+
+        // Throw error if it is still set
+        if (errNo != 0)
+            THROW_SYS_ERROR_CODE_FMT(errNo, HostConnectError, "unable to connect to '%s:%u'", strZ(host), port);
+    }
+
+    FUNCTION_LOG_RETURN_VOID();
 }

@@ -30,20 +30,22 @@ segmentNumber(const String *pgFile)
     FUNCTION_TEST_END();
 
     // Determine which segment number this is by checking for a numeric extension.  No extension means segment 0.
-    FUNCTION_TEST_RETURN(regExpMatchOne(STRDEF("\\.[0-9]+$"), pgFile) ? cvtZToUInt(strrchr(strPtr(pgFile), '.') + 1) : 0);
+    FUNCTION_TEST_RETURN(regExpMatchOne(STRDEF("\\.[0-9]+$"), pgFile) ? cvtZToUInt(strrchr(strZ(pgFile), '.') + 1) : 0);
 }
 
 /**********************************************************************************************************************************/
 BackupFileResult
 backupFile(
-    const String *pgFile, bool pgFileIgnoreMissing, uint64_t pgFileSize, const String *pgFileChecksum, bool pgFileChecksumPage,
-    uint64_t pgFileChecksumPageLsnLimit, const String *repoFile, bool repoFileHasReference, CompressType repoFileCompressType,
-    int repoFileCompressLevel, const String *backupLabel, bool delta, CipherType cipherType, const String *cipherPass)
+    const String *pgFile, bool pgFileIgnoreMissing, uint64_t pgFileSize, bool pgFileCopyExactSize, const String *pgFileChecksum,
+    bool pgFileChecksumPage, uint64_t pgFileChecksumPageLsnLimit, const String *repoFile, bool repoFileHasReference,
+    CompressType repoFileCompressType, int repoFileCompressLevel, const String *backupLabel, bool delta, CipherType cipherType,
+    const String *cipherPass)
 {
     FUNCTION_LOG_BEGIN(logLevelDebug);
         FUNCTION_LOG_PARAM(STRING, pgFile);                         // Database file to copy to the repo
         FUNCTION_LOG_PARAM(BOOL, pgFileIgnoreMissing);              // Is it OK if the database file is missing?
         FUNCTION_LOG_PARAM(UINT64, pgFileSize);                     // Size of the database file
+        FUNCTION_LOG_PARAM(BOOL, pgFileCopyExactSize);              // Copy only pgFileSize bytes even if the file has grown
         FUNCTION_LOG_PARAM(STRING, pgFileChecksum);                 // Checksum to verify the database file
         FUNCTION_LOG_PARAM(BOOL, pgFileChecksumPage);               // Should page checksums be validated
         FUNCTION_LOG_PARAM(UINT64, pgFileChecksumPageLsnLimit);     // Upper LSN limit to which page checksums must be valid
@@ -69,7 +71,7 @@ backupFile(
     {
         // Generate complete repo path and add compression extension if needed
         const String *repoPathFile = strNewFmt(
-            STORAGE_REPO_BACKUP "/%s/%s%s", strPtr(backupLabel), strPtr(repoFile), strPtr(compressExtStr(repoFileCompressType)));
+            STORAGE_REPO_BACKUP "/%s/%s%s", strZ(backupLabel), strZ(repoFile), strZ(compressExtStr(repoFileCompressType)));
 
         // If checksum is defined then the file needs to be checked. If delta option then check the DB and possibly the repo, else
         // just check the repo.
@@ -86,7 +88,9 @@ backupFile(
                 // since the manifest was built we don't need to consider the extra bytes since they will be replayed from WAL
                 // during recovery.
                 IoRead *read = storageReadIo(
-                    storageNewReadP(storagePg(), pgFile, .ignoreMissing = pgFileIgnoreMissing, .limit = VARUINT64(pgFileSize)));
+                    storageNewReadP(
+                        storagePg(), pgFile, .ignoreMissing = pgFileIgnoreMissing,
+                        .limit = pgFileCopyExactSize ? VARUINT64(pgFileSize) : NULL));
                 ioFilterGroupAdd(ioReadFilterGroup(read), cryptoHashNew(HASH_TYPE_SHA1_STR));
                 ioFilterGroupAdd(ioReadFilterGroup(read), ioSizeNew());
 
@@ -196,7 +200,7 @@ backupFile(
             // during recovery.
             StorageRead *read = storageNewReadP(
                 storagePg(), pgFile, .ignoreMissing = pgFileIgnoreMissing, .compressible = compressible,
-                .limit = VARUINT64(pgFileSize));
+                .limit = pgFileCopyExactSize ? VARUINT64(pgFileSize) : NULL);
             ioFilterGroupAdd(ioReadFilterGroup(storageReadIo(read)), cryptoHashNew(HASH_TYPE_SHA1_STR));
             ioFilterGroupAdd(ioReadFilterGroup(storageReadIo(read)), ioSizeNew());
 

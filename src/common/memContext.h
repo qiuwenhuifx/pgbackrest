@@ -75,7 +75,7 @@ MEM_CONTEXT_END();
         /* Switch back to the prior context */                                                                                     \
         memContextSwitchBack();                                                                                                    \
     }                                                                                                                              \
-    while(0)
+    while (0)
 
 /***********************************************************************************************************************************
 Switch to prior context and ensure that the previous prior memory context is restored after the block executes (even on error)
@@ -126,7 +126,7 @@ Note that memory context names are expected to live for the lifetime of the cont
         memContextSwitchBack();                                                                                                    \
         memContextKeep();                                                                                                          \
     }                                                                                                                              \
-    while(0)
+    while (0)
 
 /***********************************************************************************************************************************
 Create a temporary memory context and make sure it is freed when done (even on error)
@@ -240,6 +240,9 @@ Memory context getters
 // Current memory context
 MemContext *memContextCurrent(void);
 
+// Is the mem context currently being freed?
+bool memContextFreeing(MemContext *this);
+
 // Prior context, i.e. the context that was current before the last memContextSwitch()
 MemContext *memContextPrior(void);
 
@@ -249,6 +252,9 @@ MemContext *memContextTop(void);
 
 // Mem context name
 const char *memContextName(MemContext *this);
+
+// Get total size of mem context and all children
+size_t memContextSize(const MemContext *this);
 
 /***********************************************************************************************************************************
 Macros for function logging

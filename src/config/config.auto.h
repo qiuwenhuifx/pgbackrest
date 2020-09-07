@@ -61,6 +61,8 @@ Option constants
     STRING_DECLARE(CFGOPT_ARCHIVE_COPY_STR);
 #define CFGOPT_ARCHIVE_GET_QUEUE_MAX                                "archive-get-queue-max"
     STRING_DECLARE(CFGOPT_ARCHIVE_GET_QUEUE_MAX_STR);
+#define CFGOPT_ARCHIVE_MODE                                         "archive-mode"
+    STRING_DECLARE(CFGOPT_ARCHIVE_MODE_STR);
 #define CFGOPT_ARCHIVE_PUSH_QUEUE_MAX                               "archive-push-queue-max"
     STRING_DECLARE(CFGOPT_ARCHIVE_PUSH_QUEUE_MAX_STR);
 #define CFGOPT_ARCHIVE_TIMEOUT                                      "archive-timeout"
@@ -99,6 +101,8 @@ Option constants
     STRING_DECLARE(CFGOPT_DRY_RUN_STR);
 #define CFGOPT_EXCLUDE                                              "exclude"
     STRING_DECLARE(CFGOPT_EXCLUDE_STR);
+#define CFGOPT_EXPIRE_AUTO                                          "expire-auto"
+    STRING_DECLARE(CFGOPT_EXPIRE_AUTO_STR);
 #define CFGOPT_FILTER                                               "filter"
     STRING_DECLARE(CFGOPT_FILTER_STR);
 #define CFGOPT_FORCE                                                "force"
@@ -107,6 +111,8 @@ Option constants
     STRING_DECLARE(CFGOPT_HOST_ID_STR);
 #define CFGOPT_IGNORE_MISSING                                       "ignore-missing"
     STRING_DECLARE(CFGOPT_IGNORE_MISSING_STR);
+#define CFGOPT_IO_TIMEOUT                                           "io-timeout"
+    STRING_DECLARE(CFGOPT_IO_TIMEOUT_STR);
 #define CFGOPT_LINK_ALL                                             "link-all"
     STRING_DECLARE(CFGOPT_LINK_ALL_STR);
 #define CFGOPT_LINK_MAP                                             "link-map"
@@ -147,6 +153,8 @@ Option constants
     STRING_DECLARE(CFGOPT_PG1_HOST_PORT_STR);
 #define CFGOPT_PG1_HOST_USER                                        "pg1-host-user"
     STRING_DECLARE(CFGOPT_PG1_HOST_USER_STR);
+#define CFGOPT_PG1_LOCAL                                            "pg1-local"
+    STRING_DECLARE(CFGOPT_PG1_LOCAL_STR);
 #define CFGOPT_PG1_PATH                                             "pg1-path"
     STRING_DECLARE(CFGOPT_PG1_PATH_STR);
 #define CFGOPT_PG1_PORT                                             "pg1-port"
@@ -169,6 +177,8 @@ Option constants
     STRING_DECLARE(CFGOPT_PG2_HOST_PORT_STR);
 #define CFGOPT_PG2_HOST_USER                                        "pg2-host-user"
     STRING_DECLARE(CFGOPT_PG2_HOST_USER_STR);
+#define CFGOPT_PG2_LOCAL                                            "pg2-local"
+    STRING_DECLARE(CFGOPT_PG2_LOCAL_STR);
 #define CFGOPT_PG2_PATH                                             "pg2-path"
     STRING_DECLARE(CFGOPT_PG2_PATH_STR);
 #define CFGOPT_PG2_PORT                                             "pg2-port"
@@ -191,6 +201,8 @@ Option constants
     STRING_DECLARE(CFGOPT_PG3_HOST_PORT_STR);
 #define CFGOPT_PG3_HOST_USER                                        "pg3-host-user"
     STRING_DECLARE(CFGOPT_PG3_HOST_USER_STR);
+#define CFGOPT_PG3_LOCAL                                            "pg3-local"
+    STRING_DECLARE(CFGOPT_PG3_LOCAL_STR);
 #define CFGOPT_PG3_PATH                                             "pg3-path"
     STRING_DECLARE(CFGOPT_PG3_PATH_STR);
 #define CFGOPT_PG3_PORT                                             "pg3-port"
@@ -213,6 +225,8 @@ Option constants
     STRING_DECLARE(CFGOPT_PG4_HOST_PORT_STR);
 #define CFGOPT_PG4_HOST_USER                                        "pg4-host-user"
     STRING_DECLARE(CFGOPT_PG4_HOST_USER_STR);
+#define CFGOPT_PG4_LOCAL                                            "pg4-local"
+    STRING_DECLARE(CFGOPT_PG4_LOCAL_STR);
 #define CFGOPT_PG4_PATH                                             "pg4-path"
     STRING_DECLARE(CFGOPT_PG4_PATH_STR);
 #define CFGOPT_PG4_PORT                                             "pg4-port"
@@ -235,6 +249,8 @@ Option constants
     STRING_DECLARE(CFGOPT_PG5_HOST_PORT_STR);
 #define CFGOPT_PG5_HOST_USER                                        "pg5-host-user"
     STRING_DECLARE(CFGOPT_PG5_HOST_USER_STR);
+#define CFGOPT_PG5_LOCAL                                            "pg5-local"
+    STRING_DECLARE(CFGOPT_PG5_LOCAL_STR);
 #define CFGOPT_PG5_PATH                                             "pg5-path"
     STRING_DECLARE(CFGOPT_PG5_PATH_STR);
 #define CFGOPT_PG5_PORT                                             "pg5-port"
@@ -257,6 +273,8 @@ Option constants
     STRING_DECLARE(CFGOPT_PG6_HOST_PORT_STR);
 #define CFGOPT_PG6_HOST_USER                                        "pg6-host-user"
     STRING_DECLARE(CFGOPT_PG6_HOST_USER_STR);
+#define CFGOPT_PG6_LOCAL                                            "pg6-local"
+    STRING_DECLARE(CFGOPT_PG6_LOCAL_STR);
 #define CFGOPT_PG6_PATH                                             "pg6-path"
     STRING_DECLARE(CFGOPT_PG6_PATH_STR);
 #define CFGOPT_PG6_PORT                                             "pg6-port"
@@ -279,6 +297,8 @@ Option constants
     STRING_DECLARE(CFGOPT_PG7_HOST_PORT_STR);
 #define CFGOPT_PG7_HOST_USER                                        "pg7-host-user"
     STRING_DECLARE(CFGOPT_PG7_HOST_USER_STR);
+#define CFGOPT_PG7_LOCAL                                            "pg7-local"
+    STRING_DECLARE(CFGOPT_PG7_LOCAL_STR);
 #define CFGOPT_PG7_PATH                                             "pg7-path"
     STRING_DECLARE(CFGOPT_PG7_PATH_STR);
 #define CFGOPT_PG7_PORT                                             "pg7-port"
@@ -301,6 +321,8 @@ Option constants
     STRING_DECLARE(CFGOPT_PG8_HOST_PORT_STR);
 #define CFGOPT_PG8_HOST_USER                                        "pg8-host-user"
     STRING_DECLARE(CFGOPT_PG8_HOST_USER_STR);
+#define CFGOPT_PG8_LOCAL                                            "pg8-local"
+    STRING_DECLARE(CFGOPT_PG8_LOCAL_STR);
 #define CFGOPT_PG8_PATH                                             "pg8-path"
     STRING_DECLARE(CFGOPT_PG8_PATH_STR);
 #define CFGOPT_PG8_PORT                                             "pg8-port"
@@ -323,6 +345,24 @@ Option constants
     STRING_DECLARE(CFGOPT_RECURSE_STR);
 #define CFGOPT_REMOTE_TYPE                                          "remote-type"
     STRING_DECLARE(CFGOPT_REMOTE_TYPE_STR);
+#define CFGOPT_REPO1_AZURE_ACCOUNT                                  "repo1-azure-account"
+    STRING_DECLARE(CFGOPT_REPO1_AZURE_ACCOUNT_STR);
+#define CFGOPT_REPO1_AZURE_CA_FILE                                  "repo1-azure-ca-file"
+    STRING_DECLARE(CFGOPT_REPO1_AZURE_CA_FILE_STR);
+#define CFGOPT_REPO1_AZURE_CA_PATH                                  "repo1-azure-ca-path"
+    STRING_DECLARE(CFGOPT_REPO1_AZURE_CA_PATH_STR);
+#define CFGOPT_REPO1_AZURE_CONTAINER                                "repo1-azure-container"
+    STRING_DECLARE(CFGOPT_REPO1_AZURE_CONTAINER_STR);
+#define CFGOPT_REPO1_AZURE_HOST                                     "repo1-azure-host"
+    STRING_DECLARE(CFGOPT_REPO1_AZURE_HOST_STR);
+#define CFGOPT_REPO1_AZURE_KEY                                      "repo1-azure-key"
+    STRING_DECLARE(CFGOPT_REPO1_AZURE_KEY_STR);
+#define CFGOPT_REPO1_AZURE_KEY_TYPE                                 "repo1-azure-key-type"
+    STRING_DECLARE(CFGOPT_REPO1_AZURE_KEY_TYPE_STR);
+#define CFGOPT_REPO1_AZURE_PORT                                     "repo1-azure-port"
+    STRING_DECLARE(CFGOPT_REPO1_AZURE_PORT_STR);
+#define CFGOPT_REPO1_AZURE_VERIFY_TLS                               "repo1-azure-verify-tls"
+    STRING_DECLARE(CFGOPT_REPO1_AZURE_VERIFY_TLS_STR);
 #define CFGOPT_REPO1_CIPHER_PASS                                    "repo1-cipher-pass"
     STRING_DECLARE(CFGOPT_REPO1_CIPHER_PASS_STR);
 #define CFGOPT_REPO1_CIPHER_TYPE                                    "repo1-cipher-type"
@@ -343,6 +383,8 @@ Option constants
     STRING_DECLARE(CFGOPT_REPO1_HOST_PORT_STR);
 #define CFGOPT_REPO1_HOST_USER                                      "repo1-host-user"
     STRING_DECLARE(CFGOPT_REPO1_HOST_USER_STR);
+#define CFGOPT_REPO1_LOCAL                                          "repo1-local"
+    STRING_DECLARE(CFGOPT_REPO1_LOCAL_STR);
 #define CFGOPT_REPO1_PATH                                           "repo1-path"
     STRING_DECLARE(CFGOPT_REPO1_PATH_STR);
 #define CFGOPT_REPO1_RETENTION_ARCHIVE                              "repo1-retention-archive"
@@ -353,6 +395,8 @@ Option constants
     STRING_DECLARE(CFGOPT_REPO1_RETENTION_DIFF_STR);
 #define CFGOPT_REPO1_RETENTION_FULL                                 "repo1-retention-full"
     STRING_DECLARE(CFGOPT_REPO1_RETENTION_FULL_STR);
+#define CFGOPT_REPO1_RETENTION_FULL_TYPE                            "repo1-retention-full-type"
+    STRING_DECLARE(CFGOPT_REPO1_RETENTION_FULL_TYPE_STR);
 #define CFGOPT_REPO1_S3_BUCKET                                      "repo1-s3-bucket"
     STRING_DECLARE(CFGOPT_REPO1_S3_BUCKET_STR);
 #define CFGOPT_REPO1_S3_CA_FILE                                     "repo1-s3-ca-file"
@@ -367,10 +411,14 @@ Option constants
     STRING_DECLARE(CFGOPT_REPO1_S3_KEY_STR);
 #define CFGOPT_REPO1_S3_KEY_SECRET                                  "repo1-s3-key-secret"
     STRING_DECLARE(CFGOPT_REPO1_S3_KEY_SECRET_STR);
+#define CFGOPT_REPO1_S3_KEY_TYPE                                    "repo1-s3-key-type"
+    STRING_DECLARE(CFGOPT_REPO1_S3_KEY_TYPE_STR);
 #define CFGOPT_REPO1_S3_PORT                                        "repo1-s3-port"
     STRING_DECLARE(CFGOPT_REPO1_S3_PORT_STR);
 #define CFGOPT_REPO1_S3_REGION                                      "repo1-s3-region"
     STRING_DECLARE(CFGOPT_REPO1_S3_REGION_STR);
+#define CFGOPT_REPO1_S3_ROLE                                        "repo1-s3-role"
+    STRING_DECLARE(CFGOPT_REPO1_S3_ROLE_STR);
 #define CFGOPT_REPO1_S3_TOKEN                                       "repo1-s3-token"
     STRING_DECLARE(CFGOPT_REPO1_S3_TOKEN_STR);
 #define CFGOPT_REPO1_S3_URI_STYLE                                   "repo1-s3-uri-style"
@@ -381,6 +429,8 @@ Option constants
     STRING_DECLARE(CFGOPT_REPO1_TYPE_STR);
 #define CFGOPT_RESUME                                               "resume"
     STRING_DECLARE(CFGOPT_RESUME_STR);
+#define CFGOPT_SCK_BLOCK                                            "sck-block"
+    STRING_DECLARE(CFGOPT_SCK_BLOCK_STR);
 #define CFGOPT_SCK_KEEP_ALIVE                                       "sck-keep-alive"
     STRING_DECLARE(CFGOPT_SCK_KEEP_ALIVE_STR);
 #define CFGOPT_SET                                                  "set"
@@ -416,7 +466,7 @@ Option constants
 #define CFGOPT_TYPE                                                 "type"
     STRING_DECLARE(CFGOPT_TYPE_STR);
 
-#define CFG_OPTION_TOTAL                                            181
+#define CFG_OPTION_TOTAL                                            206
 
 /***********************************************************************************************************************************
 Command enum
@@ -454,6 +504,7 @@ typedef enum
     cfgOptArchiveCheck,
     cfgOptArchiveCopy,
     cfgOptArchiveGetQueueMax,
+    cfgOptArchiveMode,
     cfgOptArchivePushQueueMax,
     cfgOptArchiveTimeout,
     cfgOptBackupStandby,
@@ -473,10 +524,12 @@ typedef enum
     cfgOptDelta,
     cfgOptDryRun,
     cfgOptExclude,
+    cfgOptExpireAuto,
     cfgOptFilter,
     cfgOptForce,
     cfgOptHostId,
     cfgOptIgnoreMissing,
+    cfgOptIoTimeout,
     cfgOptLinkAll,
     cfgOptLinkMap,
     cfgOptLockPath,
@@ -546,6 +599,14 @@ typedef enum
     cfgOptPgHostUser6,
     cfgOptPgHostUser7,
     cfgOptPgHostUser8,
+    cfgOptPgLocal,
+    cfgOptPgLocal2,
+    cfgOptPgLocal3,
+    cfgOptPgLocal4,
+    cfgOptPgLocal5,
+    cfgOptPgLocal6,
+    cfgOptPgLocal7,
+    cfgOptPgLocal8,
     cfgOptPgPath,
     cfgOptPgPath2,
     cfgOptPgPath3,
@@ -585,6 +646,15 @@ typedef enum
     cfgOptRecoveryOption,
     cfgOptRecurse,
     cfgOptRemoteType,
+    cfgOptRepoAzureAccount,
+    cfgOptRepoAzureCaFile,
+    cfgOptRepoAzureCaPath,
+    cfgOptRepoAzureContainer,
+    cfgOptRepoAzureHost,
+    cfgOptRepoAzureKey,
+    cfgOptRepoAzureKeyType,
+    cfgOptRepoAzurePort,
+    cfgOptRepoAzureVerifyTls,
     cfgOptRepoCipherPass,
     cfgOptRepoCipherType,
     cfgOptRepoHardlink,
@@ -595,11 +665,13 @@ typedef enum
     cfgOptRepoHostConfigPath,
     cfgOptRepoHostPort,
     cfgOptRepoHostUser,
+    cfgOptRepoLocal,
     cfgOptRepoPath,
     cfgOptRepoRetentionArchive,
     cfgOptRepoRetentionArchiveType,
     cfgOptRepoRetentionDiff,
     cfgOptRepoRetentionFull,
+    cfgOptRepoRetentionFullType,
     cfgOptRepoS3Bucket,
     cfgOptRepoS3CaFile,
     cfgOptRepoS3CaPath,
@@ -607,13 +679,16 @@ typedef enum
     cfgOptRepoS3Host,
     cfgOptRepoS3Key,
     cfgOptRepoS3KeySecret,
+    cfgOptRepoS3KeyType,
     cfgOptRepoS3Port,
     cfgOptRepoS3Region,
+    cfgOptRepoS3Role,
     cfgOptRepoS3Token,
     cfgOptRepoS3UriStyle,
     cfgOptRepoS3VerifyTls,
     cfgOptRepoType,
     cfgOptResume,
+    cfgOptSckBlock,
     cfgOptSckKeepAlive,
     cfgOptSet,
     cfgOptSort,

@@ -6,6 +6,7 @@ C Debug Harness
 
 #ifdef NO_STACK_TRACE
     #define FUNCTION_HARNESS_INIT(exe)
+    #define FUNCTION_HARNESS_STACK_TRACE_LINE_SET(lineNo)
     #define FUNCTION_HARNESS_BEGIN()
     #define FUNCTION_HARNESS_PARAM(typeMacroPrefix, param)
     #define FUNCTION_HARNESS_PARAM_P(typeMacroPrefix, param)
@@ -26,6 +27,15 @@ C Debug Harness
                 stackTraceInit(exe)
     #else
         #define FUNCTION_HARNESS_INIT(exe)
+    #endif
+
+    // Set line numer of the current function in the stack trace. This is used to give more detailed info about which test macro
+    // caused an error.
+    #ifndef NDEBUG
+        #define FUNCTION_HARNESS_STACK_TRACE_LINE_SET(lineNo)                                                                      \
+            stackTraceTestFileLineSet((unsigned int)lineNo)
+    #else
+        #define FUNCTION_HARNESS_STACK_TRACE_LINE_SET(lineNo)
     #endif
 
     #define FUNCTION_HARNESS_BEGIN()                                                                                               \
@@ -56,8 +66,12 @@ C Debug Harness
         while (0)
 
     #define FUNCTION_HARNESS_RESULT(typeMacroPrefix, result)                                                                       \
-        STACK_TRACE_POP(false);                                                                                                    \
-        return result                                                                                                              \
+        do                                                                                                                         \
+        {                                                                                                                          \
+            STACK_TRACE_POP(false);                                                                                                \
+            return result;                                                                                                         \
+        }                                                                                                                          \
+        while (0)
 
     #define FUNCTION_HARNESS_RESULT_VOID()                                                                                         \
         STACK_TRACE_POP(false);

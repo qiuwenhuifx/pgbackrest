@@ -53,11 +53,9 @@ storageNew(
     FUNCTION_LOG_END();
 
     ASSERT(type != NULL);
-    ASSERT(strSize(path) >= 1 && strPtr(path)[0] == '/');
+    ASSERT(strSize(path) >= 1 && strZ(path)[0] == '/');
     ASSERT(driver != NULL);
-    ASSERT(interface.exists != NULL);
     ASSERT(interface.info != NULL);
-    ASSERT(interface.list != NULL);
     ASSERT(interface.infoList != NULL);
     ASSERT(interface.newRead != NULL);
     ASSERT(interface.newWrite != NULL);
@@ -153,19 +151,20 @@ storageExists(const Storage *this, const String *pathExp, StorageExistsParam par
 
     MEM_CONTEXT_TEMP_BEGIN()
     {
-        // Build the path to the file
-        String *path = storagePathP(this, pathExp);
-
-        // Create Wait object of timeout > 0
-        Wait *wait = param.timeout != 0 ? waitNew(param.timeout) : NULL;
+        Wait *wait = waitNew(param.timeout);
 
         // Loop until file exists or timeout
         do
         {
-            // Call driver function
-            result = storageInterfaceExistsP(this->driver, path);
+            // storageInfoLevelBasic is required here because storageInfoLevelExists will not return the type and this function
+            // specifically wants to test existence of a *file*, not just the existence of anything with the specified name.
+            StorageInfo info = storageInfoP(
+                this, pathExp, .level = storageInfoLevelBasic, .ignoreMissing = true, .followLink = true);
+
+            // Only exists if it is a file
+            result = info.exists && info.type == storageTypeFile;
         }
-        while (!result && wait != NULL && waitMore(wait));
+        while (!result && waitMore(wait));
     }
     MEM_CONTEXT_TEMP_END();
 
@@ -198,10 +197,7 @@ storageGet(StorageRead *file, StorageGetParam param)
 
                 // If an exact read make sure the size is as expected
                 if (bufUsed(result) != param.exactSize)
-                {
-                    THROW_FMT(
-                        FileReadError, "unable to read %zu byte(s) from '%s'", param.exactSize, strPtr(storageReadName(file)));
-                }
+                    THROW_FMT(FileReadError, "unable to read %zu byte(s) from '%s'", param.exactSize, strZ(storageReadName(file)));
             }
             // Else read entire file
             else
@@ -239,6 +235,7 @@ storageInfo(const Storage *this, const String *fileExp, StorageInfoParam param)
     FUNCTION_LOG_BEGIN(logLevelDebug);
         FUNCTION_LOG_PARAM(STORAGE, this);
         FUNCTION_LOG_PARAM(STRING, fileExp);
+        FUNCTION_LOG_PARAM(ENUM, param.level);
         FUNCTION_LOG_PARAM(BOOL, param.ignoreMissing);
         FUNCTION_LOG_PARAM(BOOL, param.followLink);
         FUNCTION_LOG_PARAM(BOOL, param.noPathEnforce);
@@ -255,11 +252,15 @@ storageInfo(const Storage *this, const String *fileExp, StorageInfoParam param)
         String *file = storagePathP(this, fileExp, .noEnforce = param.noPathEnforce);
 
         // Call driver function
-        result = storageInterfaceInfoP(this->driver, file, .followLink = param.followLink);
+        if (param.level == storageInfoLevelDefault)
+            param.level = storageFeature(this, storageFeatureInfoDetail) ? storageInfoLevelDetail : storageInfoLevelBasic;
+
+        result = storageInterfaceInfoP(
+            this->driver, file, param.level, .followLink = param.followLink);
 
         // Error if the file missing and not ignoring
         if (!result.exists && !param.ignoreMissing)
-            THROW_SYS_ERROR_FMT(FileOpenError, STORAGE_ERROR_INFO_MISSING, strPtr(file));
+            THROW_SYS_ERROR_FMT(FileOpenError, STORAGE_ERROR_INFO_MISSING, strZ(file));
 
         // Dup the strings into the prior context
         MEM_CONTEXT_PRIOR_BEGIN()
@@ -311,11 +312,14 @@ storageInfoListSortCallback(void *data, const StorageInfo *info)
 
 static bool
 storageInfoListSort(
-    const Storage *this, const String *path, SortOrder sortOrder, StorageInfoListCallback callback, void *callbackData)
+    const Storage *this, const String *path, StorageInfoLevel level, const String *expression, SortOrder sortOrder,
+    StorageInfoListCallback callback, void *callbackData)
 {
     FUNCTION_LOG_BEGIN(logLevelTrace);
         FUNCTION_LOG_PARAM(STORAGE, this);
         FUNCTION_LOG_PARAM(STRING, path);
+        FUNCTION_LOG_PARAM(ENUM, level);
+        FUNCTION_LOG_PARAM(STRING, expression);
         FUNCTION_LOG_PARAM(ENUM, sortOrder);
         FUNCTION_LOG_PARAM(FUNCTIONP, callback);
         FUNCTION_LOG_PARAM_P(VOID, callbackData);
@@ -331,7 +335,7 @@ storageInfoListSort(
         // If no sorting then use the callback directly
         if (sortOrder == sortOrderNone)
         {
-            result = storageInterfaceInfoListP(this->driver, path, callback, callbackData);
+            result = storageInterfaceInfoListP(this->driver, path, level, callback, callbackData, .expression = expression);
         }
         // Else sort the info before sending it to the callback
         else
@@ -343,7 +347,8 @@ storageInfoListSort(
                 .infoList = lstNewP(sizeof(StorageInfo), .comparator = lstComparatorStr),
             };
 
-            result = storageInterfaceInfoListP(this->driver, path, storageInfoListSortCallback, &data);
+            result = storageInterfaceInfoListP(
+                this->driver, path, level, storageInfoListSortCallback, &data, .expression = expression);
             lstSort(data.infoList, sortOrder);
 
             MEM_CONTEXT_TEMP_RESET_BEGIN()
@@ -370,7 +375,8 @@ typedef struct StorageInfoListData
     const Storage *storage;                                         // Storage object;
     StorageInfoListCallback callbackFunction;                       // Original callback function
     void *callbackData;                                             // Original callback data
-    RegExp *expression;                                             // Filter for names
+    const String *expression;                                       // Filter for names
+    RegExp *regExp;                                                 // Compiled filter for names
     bool recurse;                                                   // Should we recurse?
     SortOrder sortOrder;                                            // Sort order
     const String *path;                                             // Top-level path for info
@@ -401,28 +407,29 @@ storageInfoListCallback(void *data, const StorageInfo *info)
     StorageInfo infoUpdate = *info;
 
     if (listData->subPath != NULL)
-        infoUpdate.name = strNewFmt("%s/%s", strPtr(listData->subPath), strPtr(infoUpdate.name));
+        infoUpdate.name = strNewFmt("%s/%s", strZ(listData->subPath), strZ(infoUpdate.name));
 
-    // Only continue if there is no expression or the expression matches
-    if (listData->expression == NULL || regExpMatch(listData->expression, infoUpdate.name))
+    // Is this file a match?
+    bool match = listData->expression == NULL || regExpMatch(listData->regExp, infoUpdate.name);
+
+    // Callback before checking path contents when not descending
+    if (match && listData->sortOrder != sortOrderDesc)
+        listData->callbackFunction(listData->callbackData, &infoUpdate);
+
+    // Recurse into paths
+    if (infoUpdate.type == storageTypePath && listData->recurse && !dotPath)
     {
-        if (listData->sortOrder != sortOrderDesc)
-            listData->callbackFunction(listData->callbackData, &infoUpdate);
+        StorageInfoListData data = *listData;
+        data.subPath = infoUpdate.name;
 
-        // Recurse into paths
-        if (infoUpdate.type == storageTypePath && listData->recurse && !dotPath)
-        {
-            StorageInfoListData data = *listData;
-            data.subPath = infoUpdate.name;
-
-            storageInfoListSort(
-                data.storage, strNewFmt("%s/%s", strPtr(data.path), strPtr(data.subPath)), data.sortOrder, storageInfoListCallback,
-                &data);
-        }
-
-        if (listData->sortOrder == sortOrderDesc)
-            listData->callbackFunction(listData->callbackData, &infoUpdate);
+        storageInfoListSort(
+            data.storage, strNewFmt("%s/%s", strZ(data.path), strZ(data.subPath)), infoUpdate.level, data.expression,
+            data.sortOrder, storageInfoListCallback, &data);
     }
+
+    // Callback after checking path contents when descending
+    if (match && listData->sortOrder == sortOrderDesc)
+        listData->callbackFunction(listData->callbackData, &infoUpdate);
 
     FUNCTION_TEST_RETURN_VOID();
 }
@@ -436,6 +443,7 @@ storageInfoList(
         FUNCTION_LOG_PARAM(STRING, pathExp);
         FUNCTION_LOG_PARAM(FUNCTIONP, callback);
         FUNCTION_LOG_PARAM_P(VOID, callbackData);
+        FUNCTION_LOG_PARAM(ENUM, param.level);
         FUNCTION_LOG_PARAM(BOOL, param.errorOnMissing);
         FUNCTION_LOG_PARAM(ENUM, param.sortOrder);
         FUNCTION_LOG_PARAM(STRING, param.expression);
@@ -451,6 +459,10 @@ storageInfoList(
 
     MEM_CONTEXT_TEMP_BEGIN()
     {
+        // Info level
+        if (param.level == storageInfoLevelDefault)
+            param.level = storageFeature(this, storageFeatureInfoDetail) ? storageInfoLevelDetail : storageInfoLevelBasic;
+
         // Build the path
         String *path = storagePathP(this, pathExp);
 
@@ -462,21 +474,23 @@ storageInfoList(
                 .storage = this,
                 .callbackFunction = callback,
                 .callbackData = callbackData,
+                .expression = param.expression,
                 .sortOrder = param.sortOrder,
                 .recurse = param.recurse,
                 .path = path,
             };
 
-            if (param.expression != NULL)
-                data.expression = regExpNew(param.expression);
+            if (data.expression != NULL)
+                data.regExp = regExpNew(param.expression);
 
-            result = storageInfoListSort(this, path, param.sortOrder, storageInfoListCallback, &data);
+            result = storageInfoListSort(
+                this, path, param.level, param.expression, param.sortOrder, storageInfoListCallback, &data);
         }
         else
-            result = storageInfoListSort(this, path, param.sortOrder, callback, callbackData);
+            result = storageInfoListSort(this, path, param.level, NULL, param.sortOrder, callback, callbackData);
 
         if (!result && param.errorOnMissing)
-            THROW_FMT(PathMissingError, STORAGE_ERROR_LIST_INFO_MISSING, strPtr(path));
+            THROW_FMT(PathMissingError, STORAGE_ERROR_LIST_INFO_MISSING, strZ(path));
     }
     MEM_CONTEXT_TEMP_END();
 
@@ -484,6 +498,26 @@ storageInfoList(
 }
 
 /**********************************************************************************************************************************/
+static void
+storageListCallback(void *data, const StorageInfo *info)
+{
+    FUNCTION_TEST_BEGIN();
+        FUNCTION_LOG_PARAM_P(VOID, data);
+        FUNCTION_LOG_PARAM(STORAGE_INFO, info);
+    FUNCTION_TEST_END();
+
+    // Skip . path
+    if (strEq(info->name, DOT_STR))
+    {
+        FUNCTION_TEST_RETURN_VOID();
+        return;
+    }
+
+    strLstAdd((StringList *)data, info->name);
+
+    FUNCTION_TEST_RETURN_VOID();
+}
+
 StringList *
 storageList(const Storage *this, const String *pathExp, StorageListParam param)
 {
@@ -503,23 +537,16 @@ storageList(const Storage *this, const String *pathExp, StorageListParam param)
 
     MEM_CONTEXT_TEMP_BEGIN()
     {
-        // Build the path
-        String *path = storagePathP(this, pathExp);
+        result = strLstNew();
 
-        // Get the list
-        result = storageInterfaceListP(this->driver, path, .expression = param.expression);
-
-        // If the path does not exist
-        if (result == NULL)
+        // Build an empty list if the directory does not exist by default.  This makes the logic in calling functions simpler when
+        // the caller doesn't care if the path is missing.
+        if (!storageInfoListP(
+                this, pathExp, storageListCallback, result, .level = storageInfoLevelExists, .errorOnMissing = param.errorOnMissing,
+                .expression = param.expression))
         {
-            // Error if requested
-            if (param.errorOnMissing)
-                THROW_FMT(PathMissingError, STORAGE_ERROR_LIST_MISSING, strPtr(path));
-
-            // Build an empty list if the directory does not exist by default.  This makes the logic in calling functions simpler
-            // when they don't care if the path is missing.
-            if (!param.nullOnMissing)
-                result = strLstNew();
+            if (param.nullOnMissing)
+                result = NULL;
         }
 
         // Move list up to the old context
@@ -662,15 +689,15 @@ storagePath(const Storage *this, const String *pathExp, StoragePathParam param)
     else
     {
         // If the path expression is absolute then use it as is
-        if ((strPtr(pathExp))[0] == '/')
+        if ((strZ(pathExp))[0] == '/')
         {
             // Make sure the base storage path is contained within the path expression
             if (!strEqZ(this->path, "/"))
             {
                 if (!param.noEnforce && (!strBeginsWith(pathExp, this->path) ||
-                    !(strSize(pathExp) == strSize(this->path) || *(strPtr(pathExp) + strSize(this->path)) == '/')))
+                    !(strSize(pathExp) == strSize(this->path) || *(strZ(pathExp) + strSize(this->path)) == '/')))
                 {
-                    THROW_FMT(AssertError, "absolute path '%s' is not in base path '%s'", strPtr(pathExp), strPtr(this->path));
+                    THROW_FMT(AssertError, "absolute path '%s' is not in base path '%s'", strZ(pathExp), strZ(this->path));
                 }
             }
 
@@ -683,20 +710,20 @@ storagePath(const Storage *this, const String *pathExp, StoragePathParam param)
             String *pathEvaluated = NULL;
 
             // Check if there is a path expression that needs to be evaluated
-            if ((strPtr(pathExp))[0] == '<')
+            if ((strZ(pathExp))[0] == '<')
             {
                 if (this->pathExpressionFunction == NULL)
-                    THROW_FMT(AssertError, "expression '%s' not valid without callback function", strPtr(pathExp));
+                    THROW_FMT(AssertError, "expression '%s' not valid without callback function", strZ(pathExp));
 
                 // Get position of the expression end
-                char *end = strchr(strPtr(pathExp), '>');
+                char *end = strchr(strZ(pathExp), '>');
 
                 // Error if end is not found
                 if (end == NULL)
-                    THROW_FMT(AssertError, "end > not found in path expression '%s'", strPtr(pathExp));
+                    THROW_FMT(AssertError, "end > not found in path expression '%s'", strZ(pathExp));
 
                 // Create a string from the expression
-                String *expression = strNewN(strPtr(pathExp), (size_t)(end - strPtr(pathExp) + 1));
+                String *expression = strNewN(strZ(pathExp), (size_t)(end - strZ(pathExp) + 1));
 
                 // Create a string from the path if there is anything left after the expression
                 String *path = NULL;
@@ -705,11 +732,11 @@ storagePath(const Storage *this, const String *pathExp, StoragePathParam param)
                 {
                     // Error if path separator is not found
                     if (end[1] != '/')
-                        THROW_FMT(AssertError, "'/' should separate expression and path '%s'", strPtr(pathExp));
+                        THROW_FMT(AssertError, "'/' should separate expression and path '%s'", strZ(pathExp));
 
                     // Only create path if there is something after the path separator
                     if (end[2] == 0)
-                        THROW_FMT(AssertError, "path '%s' should not end in '/'", strPtr(pathExp));
+                        THROW_FMT(AssertError, "path '%s' should not end in '/'", strZ(pathExp));
 
                     path = strNew(end + 2);
                 }
@@ -719,7 +746,7 @@ storagePath(const Storage *this, const String *pathExp, StoragePathParam param)
 
                 // Evaluated path cannot be NULL
                 if (pathEvaluated == NULL)
-                    THROW_FMT(AssertError, "evaluated path '%s' cannot be null", strPtr(pathExp));
+                    THROW_FMT(AssertError, "evaluated path '%s' cannot be null", strZ(pathExp));
 
                 // Assign evaluated path to path
                 pathExp = pathEvaluated;
@@ -730,9 +757,9 @@ storagePath(const Storage *this, const String *pathExp, StoragePathParam param)
             }
 
             if (strEqZ(this->path, "/"))
-                result = strNewFmt("/%s", strPtr(pathExp));
+                result = strNewFmt("/%s", strZ(pathExp));
             else
-                result = strNewFmt("%s/%s", strPtr(this->path), strPtr(pathExp));
+                result = strNewFmt("%s/%s", strZ(this->path), strZ(pathExp));
 
             strFree(pathEvaluated);
         }
@@ -781,17 +808,13 @@ storagePathExists(const Storage *this, const String *pathExp)
     FUNCTION_LOG_END();
 
     ASSERT(this != NULL);
-    ASSERT(this->interface.pathExists != NULL);
+    ASSERT(storageFeature(this, storageFeaturePath));
 
-    bool result = false;
+    // storageInfoLevelBasic is required here because storageInfoLevelExists will not return the type and this function specifically
+    // wants to test existence of a *path*, not just the existence of anything with the specified name.
+    StorageInfo info = storageInfoP(this, pathExp, .level = storageInfoLevelBasic, .ignoreMissing = true, .followLink = true);
 
-    MEM_CONTEXT_TEMP_BEGIN()
-    {
-        result = storageInterfacePathExistsP(this->driver, storagePathP(this, pathExp));
-    }
-    MEM_CONTEXT_TEMP_END();
-
-    FUNCTION_LOG_RETURN(BOOL, result);
+    FUNCTION_LOG_RETURN(BOOL, info.exists && info.type == storageTypePath);
 }
 
 /**********************************************************************************************************************************/
@@ -818,7 +841,7 @@ storagePathRemove(const Storage *this, const String *pathExp, StoragePathRemoveP
         // Call driver function
         if (!storageInterfacePathRemoveP(this->driver, path, param.recurse) && param.errorOnMissing)
         {
-            THROW_FMT(PathRemoveError, STORAGE_ERROR_PATH_REMOVE_MISSING, strPtr(path));
+            THROW_FMT(PathRemoveError, STORAGE_ERROR_PATH_REMOVE_MISSING, strZ(path));
         }
     }
     MEM_CONTEXT_TEMP_END();
@@ -952,5 +975,5 @@ String *
 storageToLog(const Storage *this)
 {
     return strNewFmt(
-        "{type: %s, path: %s, write: %s}", strPtr(this->type), strPtr(strToLog(this->path)), cvtBoolToConstZ(this->write));
+        "{type: %s, path: %s, write: %s}", strZ(this->type), strZ(strToLog(this->path)), cvtBoolToConstZ(this->write));
 }
