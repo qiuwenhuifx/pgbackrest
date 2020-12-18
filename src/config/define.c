@@ -51,7 +51,6 @@ typedef struct ConfigDefineOptionData
     const char *name;                                               // Option name
     unsigned int type:3;                                            // Option type (e.g. string, int, boolean, etc.)
     unsigned int internal:1;                                        // Is the option only used internally?
-    unsigned int indexTotal:4;                                      // 0 normally, > 0 if indexed option (e.g. pg1-*)
     unsigned int section:2;                                         // Config section (e.g. global, stanza, cmd-line)
     bool required:1;                                                // Is the option required?
     bool secure:1;                                                  // Does the option need to be redacted on logs and cmd-line?
@@ -74,8 +73,6 @@ typedef struct ConfigDefineOptionData
 
 #define CFGDEFDATA_OPTION_NAME(nameParam)                                                                                          \
     .name = nameParam,
-#define CFGDEFDATA_OPTION_INDEX_TOTAL(indexTotalParam)                                                                             \
-    .indexTotal = indexTotalParam,
 #define CFGDEFDATA_OPTION_INTERNAL(internalParam)                                                                                  \
     .internal = internalParam,
 #define CFGDEFDATA_OPTION_REQUIRED(requiredParam)                                                                                  \
@@ -107,7 +104,6 @@ typedef enum
     configDefDataTypeDefault,
     configDefDataTypeDepend,
     configDefDataTypeInternal,
-    configDefDataTypePrefix,
     configDefDataTypeRequired,
     configDefDataTypeHelpNameAlt,
     configDefDataTypeHelpSummary,
@@ -139,13 +135,10 @@ typedef enum
 #define CFGDEFDATA_OPTION_OPTIONAL_ALLOW_RANGE(rangeMinParam, rangeMaxParam)                                                       \
     CFGDATA_OPTION_OPTIONAL_PUSH_LIST(                                                                                             \
         configDefDataTypeAllowRange, 4, 0,                                                                                         \
-        (const void *)(intptr_t)(int32_t)(((int64_t)((double)rangeMinParam * 100)) % 1000000000L),                                 \
-        (const void *)(intptr_t)(int32_t)(((int64_t)((double)rangeMinParam * 100)) / 1000000000L),                                 \
-        (const void *)(intptr_t)(int32_t)(((int64_t)((double)rangeMaxParam * 100)) % 1000000000L),                                 \
-        (const void *)(intptr_t)(int32_t)(((int64_t)((double)rangeMaxParam * 100)) / 1000000000L)),
-
-#define CFGDEFDATA_OPTION_OPTIONAL_PREFIX(prefixParam)                                                                             \
-    CFGDATA_OPTION_OPTIONAL_PUSH_LIST(configDefDataTypePrefix, 1, 0, prefixParam),
+        (const void *)(intptr_t)(int32_t)((int64_t)rangeMinParam >> 32),                                                           \
+        (const void *)(intptr_t)(int32_t)((int64_t)rangeMinParam & 0xFFFFFFFF),                                                    \
+        (const void *)(intptr_t)(int32_t)((int64_t)rangeMaxParam >> 32),                                                           \
+        (const void *)(intptr_t)(int32_t)((int64_t)rangeMaxParam & 0xFFFFFFFF)),
 
 #define CFGDEFDATA_OPTION_OPTIONAL_DEPEND(optionDepend)                                                                            \
     CFGDATA_OPTION_OPTIONAL_PUSH(configDefDataTypeDepend, 0, optionDepend),
@@ -184,12 +177,12 @@ Find optional data for a command and option.
 ***********************************************************************************************************************************/
 static void
 cfgDefDataFind(
-    ConfigDefineDataType typeFind, ConfigDefineCommand commandDefId, const void **dataList, bool *dataDefFound, int *dataDef,
+    ConfigDefineDataType typeFind, ConfigCommand commandId, const void **dataList, bool *dataDefFound, int *dataDef,
     const void ***dataDefList, unsigned int *dataDefListSize)
 {
     FUNCTION_TEST_BEGIN();
         FUNCTION_TEST_PARAM(ENUM, typeFind);
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
         FUNCTION_TEST_PARAM_PP(VOID, dataList);
         FUNCTION_TEST_PARAM_P(BOOL, dataDefFound);
         FUNCTION_TEST_PARAM_P(INT, dataDef);
@@ -225,14 +218,14 @@ cfgDefDataFind(
             if (type == configDefDataTypeCommand)
             {
                 // If data was not found in the expected command then there's nothing more to look for
-                if (commandCurrent == commandDefId)
+                if (commandCurrent == commandId)
                     break;
 
                 // Set the current command
                 commandCurrent = (unsigned int)data;
             }
             // Only find type if not in a command block yet or in the expected command
-            else if (type == typeFind && (commandCurrent == UINT_MAX || commandCurrent == commandDefId))
+            else if (type == typeFind && (commandCurrent == UINT_MAX || commandCurrent == commandId))
             {
                 // Store the data found
                 *dataDefFound = true;
@@ -241,7 +234,7 @@ cfgDefDataFind(
                 *dataDefListSize = size;
 
                 // If found in the expected command block then nothing more to look for
-                if (commandCurrent == commandDefId)
+                if (commandCurrent == commandId)
                     break;
             }
 
@@ -253,14 +246,14 @@ cfgDefDataFind(
     FUNCTION_TEST_RETURN_VOID();
 }
 
-#define CONFIG_DEFINE_DATA_FIND(commandDefId, optionDefId, type)                                                                   \
+#define CONFIG_DEFINE_DATA_FIND(commandId, optionId, type)                                                                         \
     bool dataDefFound = false;                                                                                                     \
     int dataDef = 0;                                                                                                               \
     unsigned int dataDefListSize = 0;                                                                                              \
     const void **dataDefList = NULL;                                                                                               \
                                                                                                                                    \
     cfgDefDataFind(                                                                                                                \
-        type, commandDefId, configDefineOptionData[optionDefId].data, &dataDefFound, &dataDef, &dataDefList, &dataDefListSize);
+        type, commandId, configDefineOptionData[optionId].data, &dataDefFound, &dataDef, &dataDefList, &dataDefListSize);
 
 /**********************************************************************************************************************************/
 unsigned int
@@ -279,99 +272,99 @@ cfgDefOptionTotal(void)
 
 /**********************************************************************************************************************************/
 const char *
-cfgDefCommandHelpDescription(ConfigDefineCommand commandDefId)
+cfgDefCommandHelpDescription(ConfigCommand commandId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
+    ASSERT(commandId < cfgDefCommandTotal());
 
-    FUNCTION_TEST_RETURN(configDefineCommandData[commandDefId].helpDescription);
+    FUNCTION_TEST_RETURN(configDefineCommandData[commandId].helpDescription);
 }
 
 const char *
-cfgDefCommandHelpSummary(ConfigDefineCommand commandDefId)
+cfgDefCommandHelpSummary(ConfigCommand commandId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
+    ASSERT(commandId < cfgDefCommandTotal());
 
-    FUNCTION_TEST_RETURN(configDefineCommandData[commandDefId].helpSummary);
+    FUNCTION_TEST_RETURN(configDefineCommandData[commandId].helpSummary);
 }
 
 /**********************************************************************************************************************************/
 bool
-cfgDefOptionAllowList(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId)
+cfgDefOptionAllowList(ConfigCommand commandId, ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    CONFIG_DEFINE_DATA_FIND(commandDefId, optionDefId, configDefDataTypeAllowList);
+    CONFIG_DEFINE_DATA_FIND(commandId, optionId, configDefDataTypeAllowList);
 
     FUNCTION_TEST_RETURN(dataDefFound);
 }
 
-const char *
-cfgDefOptionAllowListValue(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId, unsigned int valueId)
+static unsigned int
+cfgDefOptionAllowListValueTotal(ConfigCommand commandId, ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
-        FUNCTION_TEST_PARAM(UINT, valueId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
-    ASSERT(valueId < cfgDefOptionAllowListValueTotal(commandDefId, optionDefId));
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    CONFIG_DEFINE_DATA_FIND(commandDefId, optionDefId, configDefDataTypeAllowList);
-
-    FUNCTION_TEST_RETURN((char *)dataDefList[valueId]);
-}
-
-unsigned int
-cfgDefOptionAllowListValueTotal(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId)
-{
-    FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
-    FUNCTION_TEST_END();
-
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
-
-    CONFIG_DEFINE_DATA_FIND(commandDefId, optionDefId, configDefDataTypeAllowList);
+    CONFIG_DEFINE_DATA_FIND(commandId, optionId, configDefDataTypeAllowList);
 
     FUNCTION_TEST_RETURN(dataDefListSize);
 }
 
-// Check if the value matches a value in the allow list
-bool
-cfgDefOptionAllowListValueValid(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId, const char *value)
+static const char *
+cfgDefOptionAllowListValue(ConfigCommand commandId, ConfigOption optionId, unsigned int valueId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
+        FUNCTION_TEST_PARAM(UINT, valueId);
+    FUNCTION_TEST_END();
+
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
+    ASSERT(valueId < cfgDefOptionAllowListValueTotal(commandId, optionId));
+
+    CONFIG_DEFINE_DATA_FIND(commandId, optionId, configDefDataTypeAllowList);
+
+    FUNCTION_TEST_RETURN((char *)dataDefList[valueId]);
+}
+
+// Check if the value matches a value in the allow list
+bool
+cfgDefOptionAllowListValueValid(ConfigCommand commandId, ConfigOption optionId, const char *value)
+{
+    FUNCTION_TEST_BEGIN();
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
         FUNCTION_TEST_PARAM(STRINGZ, value);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
     ASSERT(value != NULL);
 
     bool result = false;
 
-    for (unsigned int valueIdx = 0; valueIdx < cfgDefOptionAllowListValueTotal(commandDefId, optionDefId); valueIdx++)
+    for (unsigned int valueIdx = 0; valueIdx < cfgDefOptionAllowListValueTotal(commandId, optionId); valueIdx++)
     {
-        if (strcmp(value, cfgDefOptionAllowListValue(commandDefId, optionDefId, valueIdx)) == 0)
+        if (strcmp(value, cfgDefOptionAllowListValue(commandId, optionId, valueIdx)) == 0)
             result = true;
     }
 
@@ -380,68 +373,66 @@ cfgDefOptionAllowListValueValid(ConfigDefineCommand commandDefId, ConfigDefineOp
 
 /**********************************************************************************************************************************/
 bool
-cfgDefOptionAllowRange(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId)
+cfgDefOptionAllowRange(ConfigCommand commandId, ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    CONFIG_DEFINE_DATA_FIND(commandDefId, optionDefId, configDefDataTypeAllowRange);
+    CONFIG_DEFINE_DATA_FIND(commandId, optionId, configDefDataTypeAllowRange);
 
     FUNCTION_TEST_RETURN(dataDefFound);
 }
 
-double
-cfgDefOptionAllowRangeMax(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId)
+int64_t
+cfgDefOptionAllowRangeMax(ConfigCommand commandId, ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    CONFIG_DEFINE_DATA_FIND(commandDefId, optionDefId, configDefDataTypeAllowRange);
+    CONFIG_DEFINE_DATA_FIND(commandId, optionId, configDefDataTypeAllowRange);
 
-    FUNCTION_TEST_RETURN(
-        ((double)(((int64_t)(intptr_t)dataDefList[2]) + (((int64_t)(intptr_t)dataDefList[3]) * 1000000000L))) / 100);
+    FUNCTION_TEST_RETURN((int64_t)(intptr_t)dataDefList[2] << 32 | (int64_t)(intptr_t)dataDefList[3]);
 }
 
-double
-cfgDefOptionAllowRangeMin(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId)
+int64_t
+cfgDefOptionAllowRangeMin(ConfigCommand commandId, ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    CONFIG_DEFINE_DATA_FIND(commandDefId, optionDefId, configDefDataTypeAllowRange);
+    CONFIG_DEFINE_DATA_FIND(commandId, optionId, configDefDataTypeAllowRange);
 
-    FUNCTION_TEST_RETURN(
-        ((double)(((int64_t)(intptr_t)dataDefList[0]) + (((int64_t)(intptr_t)dataDefList[1]) * 1000000000L))) / 100);
+    FUNCTION_TEST_RETURN((int64_t)(intptr_t)dataDefList[0] << 32 | (int64_t)(intptr_t)dataDefList[1]);
 }
 
 /**********************************************************************************************************************************/
 const char *
-cfgDefOptionDefault(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId)
+cfgDefOptionDefault(ConfigCommand commandId, ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    CONFIG_DEFINE_DATA_FIND(commandDefId, optionDefId, configDefDataTypeDefault);
+    CONFIG_DEFINE_DATA_FIND(commandId, optionId, configDefDataTypeDefault);
 
     char *result = NULL;
 
@@ -453,90 +444,90 @@ cfgDefOptionDefault(ConfigDefineCommand commandDefId, ConfigDefineOption optionD
 
 /**********************************************************************************************************************************/
 bool
-cfgDefOptionDepend(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId)
+cfgDefOptionDepend(ConfigCommand commandId, ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    CONFIG_DEFINE_DATA_FIND(commandDefId, optionDefId, configDefDataTypeDepend);
+    CONFIG_DEFINE_DATA_FIND(commandId, optionId, configDefDataTypeDepend);
 
     FUNCTION_TEST_RETURN(dataDefFound);
 }
 
-ConfigDefineOption
-cfgDefOptionDependOption(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId)
+ConfigOption
+cfgDefOptionDependOption(ConfigCommand commandId, ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    CONFIG_DEFINE_DATA_FIND(commandDefId, optionDefId, configDefDataTypeDepend);
+    CONFIG_DEFINE_DATA_FIND(commandId, optionId, configDefDataTypeDepend);
 
-    FUNCTION_TEST_RETURN((ConfigDefineOption)dataDef);
+    FUNCTION_TEST_RETURN((ConfigOption)dataDef);
 }
 
 const char *
-cfgDefOptionDependValue(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId, unsigned int valueId)
+cfgDefOptionDependValue(ConfigCommand commandId, ConfigOption optionId, unsigned int valueId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
         FUNCTION_TEST_PARAM(UINT, valueId);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
-    ASSERT(valueId < cfgDefOptionDependValueTotal(commandDefId, optionDefId));
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
+    ASSERT(valueId < cfgDefOptionDependValueTotal(commandId, optionId));
 
-    CONFIG_DEFINE_DATA_FIND(commandDefId, optionDefId, configDefDataTypeDepend);
+    CONFIG_DEFINE_DATA_FIND(commandId, optionId, configDefDataTypeDepend);
 
     FUNCTION_TEST_RETURN((char *)dataDefList[valueId]);
 }
 
 unsigned int
-cfgDefOptionDependValueTotal(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId)
+cfgDefOptionDependValueTotal(ConfigCommand commandId, ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    CONFIG_DEFINE_DATA_FIND(commandDefId, optionDefId, configDefDataTypeDepend);
+    CONFIG_DEFINE_DATA_FIND(commandId, optionId, configDefDataTypeDepend);
 
     FUNCTION_TEST_RETURN(dataDefListSize);
 }
 
 // Check if the value matches a value in the allow list
 bool
-cfgDefOptionDependValueValid(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId, const char *value)
+cfgDefOptionDependValueValid(ConfigCommand commandId, ConfigOption optionId, const char *value)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
         FUNCTION_TEST_PARAM(STRINGZ, value);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
     ASSERT(value != NULL);
 
     bool result = false;
 
-    for (unsigned int valueIdx = 0; valueIdx < cfgDefOptionDependValueTotal(commandDefId, optionDefId); valueIdx++)
+    for (unsigned int valueIdx = 0; valueIdx < cfgDefOptionDependValueTotal(commandId, optionId); valueIdx++)
     {
-        if (strcmp(value, cfgDefOptionDependValue(commandDefId, optionDefId, valueIdx)) == 0)
+        if (strcmp(value, cfgDefOptionDependValue(commandId, optionId, valueIdx)) == 0)
             result = true;
     }
 
@@ -545,19 +536,19 @@ cfgDefOptionDependValueValid(ConfigDefineCommand commandDefId, ConfigDefineOptio
 
 /**********************************************************************************************************************************/
 const char *
-cfgDefOptionHelpDescription(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId)
+cfgDefOptionHelpDescription(ConfigCommand commandId, ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    CONFIG_DEFINE_DATA_FIND(commandDefId, optionDefId, configDefDataTypeHelpDescription);
+    CONFIG_DEFINE_DATA_FIND(commandId, optionId, configDefDataTypeHelpDescription);
 
-    const char *result = configDefineOptionData[optionDefId].helpDescription;
+    const char *result = configDefineOptionData[optionId].helpDescription;
 
     if (dataDefFound)
         result = (char *)dataDefList[0];
@@ -567,77 +558,77 @@ cfgDefOptionHelpDescription(ConfigDefineCommand commandDefId, ConfigDefineOption
 
 /**********************************************************************************************************************************/
 bool
-cfgDefOptionHelpNameAlt(ConfigDefineOption optionDefId)
+cfgDefOptionHelpNameAlt(ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    CONFIG_DEFINE_DATA_FIND(-1, optionDefId, configDefDataTypeHelpNameAlt);
+    CONFIG_DEFINE_DATA_FIND(-1, optionId, configDefDataTypeHelpNameAlt);
 
     FUNCTION_TEST_RETURN(dataDefFound);
 }
 
 const char *
-cfgDefOptionHelpNameAltValue(ConfigDefineOption optionDefId, unsigned int valueId)
+cfgDefOptionHelpNameAltValue(ConfigOption optionId, unsigned int valueId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
         FUNCTION_TEST_PARAM(UINT, valueId);
     FUNCTION_TEST_END();
 
-    ASSERT(optionDefId < cfgDefOptionTotal());
-    ASSERT(valueId < cfgDefOptionHelpNameAltValueTotal(optionDefId));
+    ASSERT(optionId < cfgDefOptionTotal());
+    ASSERT(valueId < cfgDefOptionHelpNameAltValueTotal(optionId));
 
-    CONFIG_DEFINE_DATA_FIND(-1, optionDefId, configDefDataTypeHelpNameAlt);
+    CONFIG_DEFINE_DATA_FIND(-1, optionId, configDefDataTypeHelpNameAlt);
 
     FUNCTION_TEST_RETURN((char *)dataDefList[valueId]);
 }
 
 unsigned int
-cfgDefOptionHelpNameAltValueTotal(ConfigDefineOption optionDefId)
+cfgDefOptionHelpNameAltValueTotal(ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    CONFIG_DEFINE_DATA_FIND(-1, optionDefId, configDefDataTypeHelpNameAlt);
+    CONFIG_DEFINE_DATA_FIND(-1, optionId, configDefDataTypeHelpNameAlt);
 
     FUNCTION_TEST_RETURN(dataDefListSize);
 }
 
 /**********************************************************************************************************************************/
 const char *
-cfgDefOptionHelpSection(ConfigDefineOption optionDefId)
+cfgDefOptionHelpSection(ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    FUNCTION_TEST_RETURN(configDefineOptionData[optionDefId].helpSection);
+    FUNCTION_TEST_RETURN(configDefineOptionData[optionId].helpSection);
 }
 
 /**********************************************************************************************************************************/
 const char *
-cfgDefOptionHelpSummary(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId)
+cfgDefOptionHelpSummary(ConfigCommand commandId, ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    CONFIG_DEFINE_DATA_FIND(commandDefId, optionDefId, configDefDataTypeHelpSummary);
+    CONFIG_DEFINE_DATA_FIND(commandId, optionId, configDefDataTypeHelpSummary);
 
-    const char *result = configDefineOptionData[optionDefId].helpSummary;
+    const char *result = configDefineOptionData[optionId].helpSummary;
 
     if (dataDefFound)
         result = (char *)dataDefList[0];
@@ -657,41 +648,28 @@ cfgDefOptionId(const char *optionName)
 
     int result = -1;
 
-    for (ConfigDefineOption optionDefId = 0; optionDefId < cfgDefOptionTotal(); optionDefId++)
-        if (strcmp(optionName, configDefineOptionData[optionDefId].name) == 0)
-            result = optionDefId;
+    for (ConfigOption optionId = 0; optionId < cfgDefOptionTotal(); optionId++)
+        if (strcmp(optionName, configDefineOptionData[optionId].name) == 0)
+            result = optionId;
 
     FUNCTION_TEST_RETURN(result);
 }
 
 /**********************************************************************************************************************************/
-unsigned int
-cfgDefOptionIndexTotal(ConfigDefineOption optionDefId)
-{
-    FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
-    FUNCTION_TEST_END();
-
-    ASSERT(optionDefId < cfgDefOptionTotal());
-
-    FUNCTION_TEST_RETURN(configDefineOptionData[optionDefId].indexTotal);
-}
-
-/**********************************************************************************************************************************/
 bool
-cfgDefOptionInternal(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId)
+cfgDefOptionInternal(ConfigCommand commandId, ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    CONFIG_DEFINE_DATA_FIND(commandDefId, optionDefId, configDefDataTypeInternal);
+    CONFIG_DEFINE_DATA_FIND(commandId, optionId, configDefDataTypeInternal);
 
-    bool result = configDefineOptionData[optionDefId].internal;
+    bool result = configDefineOptionData[optionId].internal;
 
     if (dataDefFound)
         result = (bool)dataDef;
@@ -701,80 +679,60 @@ cfgDefOptionInternal(ConfigDefineCommand commandDefId, ConfigDefineOption option
 
 /**********************************************************************************************************************************/
 bool
-cfgDefOptionMulti(ConfigDefineOption optionDefId)
+cfgDefOptionMulti(ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
     FUNCTION_TEST_RETURN(
-        configDefineOptionData[optionDefId].type == cfgDefOptTypeHash ||
-            configDefineOptionData[optionDefId].type == cfgDefOptTypeList);
+        configDefineOptionData[optionId].type == cfgDefOptTypeHash ||
+            configDefineOptionData[optionId].type == cfgDefOptTypeList);
 }
 
 /**********************************************************************************************************************************/
 const char *
-cfgDefOptionName(ConfigDefineOption optionDefId)
+cfgDefOptionName(ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    FUNCTION_TEST_RETURN(configDefineOptionData[optionDefId].name);
-}
-
-/**********************************************************************************************************************************/
-const char *
-cfgDefOptionPrefix(ConfigDefineOption optionDefId)
-{
-    FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
-    FUNCTION_TEST_END();
-
-    ASSERT(optionDefId < cfgDefOptionTotal());
-
-    CONFIG_DEFINE_DATA_FIND(-1, optionDefId, configDefDataTypePrefix);
-
-    char *result = NULL;
-
-    if (dataDefFound)
-        result = (char *)dataDefList[0];
-
-    FUNCTION_TEST_RETURN(result);
+    FUNCTION_TEST_RETURN(configDefineOptionData[optionId].name);
 }
 
 /**********************************************************************************************************************************/
 bool
-cfgDefOptionSecure(ConfigDefineOption optionDefId)
+cfgDefOptionSecure(ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    FUNCTION_TEST_RETURN(configDefineOptionData[optionDefId].secure);
+    FUNCTION_TEST_RETURN(configDefineOptionData[optionId].secure);
 }
 
 /**********************************************************************************************************************************/
 bool
-cfgDefOptionRequired(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId)
+cfgDefOptionRequired(ConfigCommand commandId, ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    CONFIG_DEFINE_DATA_FIND(commandDefId, optionDefId, configDefDataTypeRequired);
+    CONFIG_DEFINE_DATA_FIND(commandId, optionId, configDefDataTypeRequired);
 
-    bool result = configDefineOptionData[optionDefId].required;
+    bool result = configDefineOptionData[optionId].required;
 
     if (dataDefFound)
         result = (bool)dataDef;
@@ -784,41 +742,41 @@ cfgDefOptionRequired(ConfigDefineCommand commandDefId, ConfigDefineOption option
 
 /**********************************************************************************************************************************/
 ConfigDefSection
-cfgDefOptionSection(ConfigDefineOption optionDefId)
+cfgDefOptionSection(ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    FUNCTION_TEST_RETURN(configDefineOptionData[optionDefId].section);
+    FUNCTION_TEST_RETURN(configDefineOptionData[optionId].section);
 }
 
 /**********************************************************************************************************************************/
 int
-cfgDefOptionType(ConfigDefineOption optionDefId)
+cfgDefOptionType(ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    FUNCTION_TEST_RETURN(configDefineOptionData[optionDefId].type);
+    FUNCTION_TEST_RETURN(configDefineOptionData[optionId].type);
 }
 
 /**********************************************************************************************************************************/
 bool
-cfgDefOptionValid(ConfigDefineCommand commandDefId, ConfigDefineOption optionDefId)
+cfgDefOptionValid(ConfigCommand commandId, ConfigOption optionId)
 {
     FUNCTION_TEST_BEGIN();
-        FUNCTION_TEST_PARAM(ENUM, commandDefId);
-        FUNCTION_TEST_PARAM(ENUM, optionDefId);
+        FUNCTION_TEST_PARAM(ENUM, commandId);
+        FUNCTION_TEST_PARAM(ENUM, optionId);
     FUNCTION_TEST_END();
 
-    ASSERT(commandDefId < cfgDefCommandTotal());
-    ASSERT(optionDefId < cfgDefOptionTotal());
+    ASSERT(commandId < cfgDefCommandTotal());
+    ASSERT(optionId < cfgDefOptionTotal());
 
-    FUNCTION_TEST_RETURN(configDefineOptionData[optionDefId].commandValid & (1 << commandDefId));
+    FUNCTION_TEST_RETURN(configDefineOptionData[optionId].commandValid & (1 << commandId));
 }

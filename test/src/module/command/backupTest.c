@@ -264,7 +264,7 @@ testBackupPqScript(unsigned int pgVersion, time_t backupTimeStart, TestBackupPqS
     PgControl pgControl = pgControlFromFile(storagePg());
 
     // Set archive timeout really small to save time on errors
-    cfgOptionSet(cfgOptArchiveTimeout, cfgSourceParam, varNewDbl(.1));
+    cfgOptionSet(cfgOptArchiveTimeout, cfgSourceParam, varNewInt64(100));
 
     uint64_t lsnStart = ((uint64_t)backupTimeStart & 0xFFFFFF00) << 28;
     uint64_t lsnStop =
@@ -419,7 +419,7 @@ testBackupPqScript(unsigned int pgVersion, time_t backupTimeStart, TestBackupPqS
                 // Start backup
                 HRNPQ_MACRO_ADVISORY_LOCK(1, true),
                 HRNPQ_MACRO_START_BACKUP_GE_10(1, param.startFast, lsnStartStr, walSegmentStart),
-                HRNPQ_MACRO_DATABASE_LIST_1(1, "test1"),
+                HRNPQ_MACRO_DATABASE_LIST_1(1, " test1"),
                 HRNPQ_MACRO_TABLESPACE_LIST_1(1, 32768, "tblspc32768"),
 
                 // Get copy start time
@@ -929,9 +929,9 @@ testRun(void)
 
         StringList *argList = strLstNew();
         strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-        strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-        strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-        strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+        hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+        hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+        hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
         harnessCfgLoad(cfgCmdBackup, argList);
 
         time_t timestamp = 1575401652;
@@ -1009,14 +1009,14 @@ testRun(void)
 
         StringList *argList = strLstNew();
         strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-        strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-        strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-        strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+        hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+        hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+        hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
         strLstAddZ(argList, "--" CFGOPT_BACKUP_STANDBY);
         harnessCfgLoad(cfgCmdBackup, argList);
 
         TEST_ERROR(
-            backupInit(infoBackupNew(PG_VERSION_91, 1000000000000000910, NULL)), ConfigError,
+            backupInit(infoBackupNew(PG_VERSION_91, 1000000000000000910, pgCatalogTestVersion(PG_VERSION_91), NULL)), ConfigError,
              "option 'backup-standby' not valid for PostgreSQL < 9.2");
 
         // -------------------------------------------------------------------------------------------------------------------------
@@ -1029,14 +1029,16 @@ testRun(void)
 
         argList = strLstNew();
         strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-        strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-        strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-        strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+        hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+        hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+        hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
         strLstAddZ(argList, "--" CFGOPT_BACKUP_STANDBY);
         strLstAddZ(argList, "--no-" CFGOPT_ONLINE);
         harnessCfgLoad(cfgCmdBackup, argList);
 
-        TEST_RESULT_VOID(backupInit(infoBackupNew(PG_VERSION_92, 1000000000000000920, NULL)), "backup init");
+        TEST_RESULT_VOID(
+            backupInit(infoBackupNew(PG_VERSION_92, 1000000000000000920, pgCatalogTestVersion(PG_VERSION_92), NULL)),
+            "backup init");
         TEST_RESULT_BOOL(cfgOptionBool(cfgOptBackupStandby), false, "    check backup-standby");
 
         TEST_RESULT_LOG(
@@ -1052,18 +1054,20 @@ testRun(void)
 
         argList = strLstNew();
         strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-        strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-        strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-        strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+        hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+        hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+        hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
         strLstAddZ(argList, "--no-" CFGOPT_ONLINE);
         harnessCfgLoad(cfgCmdBackup, argList);
 
         TEST_ERROR(
-            backupInit(infoBackupNew(PG_VERSION_11, 1000000000000001100, NULL)), BackupMismatchError,
+            backupInit(infoBackupNew(PG_VERSION_11, 1000000000000001100, pgCatalogTestVersion(PG_VERSION_11), NULL)),
+            BackupMismatchError,
             "PostgreSQL version 10, system-id 1000000000000001000 do not match stanza version 11, system-id 1000000000000001100\n"
             "HINT: is this the correct stanza?");
         TEST_ERROR(
-            backupInit(infoBackupNew(PG_VERSION_10, 1000000000000001100, NULL)), BackupMismatchError,
+            backupInit(infoBackupNew(PG_VERSION_10, 1000000000000001100, pgCatalogTestVersion(PG_VERSION_10), NULL)),
+            BackupMismatchError,
             "PostgreSQL version 10, system-id 1000000000000001000 do not match stanza version 10, system-id 1000000000000001100\n"
             "HINT: is this the correct stanza?");
 
@@ -1077,14 +1081,16 @@ testRun(void)
 
         argList = strLstNew();
         strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-        strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-        strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-        strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+        hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+        hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+        hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
         strLstAddZ(argList, "--no-" CFGOPT_ONLINE);
         strLstAddZ(argList, "--" CFGOPT_START_FAST);
         harnessCfgLoad(cfgCmdBackup, argList);
 
-        TEST_RESULT_VOID(backupInit(infoBackupNew(PG_VERSION_83, 1000000000000000830, NULL)), "backup init");
+        TEST_RESULT_VOID(
+            backupInit(infoBackupNew(PG_VERSION_83, 1000000000000000830, pgCatalogTestVersion(PG_VERSION_83), NULL)),
+            "backup init");
         TEST_RESULT_BOOL(cfgOptionBool(cfgOptStartFast), false, "    check start-fast");
 
         TEST_RESULT_LOG("P00   WARN: start-fast option is only available in PostgreSQL >= 8.4");
@@ -1099,14 +1105,16 @@ testRun(void)
 
         argList = strLstNew();
         strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-        strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-        strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-        strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+        hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+        hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+        hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
         strLstAddZ(argList, "--no-" CFGOPT_ONLINE);
         strLstAddZ(argList, "--" CFGOPT_STOP_AUTO);
         harnessCfgLoad(cfgCmdBackup, argList);
 
-        TEST_RESULT_VOID(backupInit(infoBackupNew(PG_VERSION_84, 1000000000000000840, NULL)), "backup init");
+        TEST_RESULT_VOID(
+            backupInit(infoBackupNew(PG_VERSION_84, 1000000000000000840, pgCatalogTestVersion(PG_VERSION_84), NULL)),
+            "backup init");
         TEST_RESULT_BOOL(cfgOptionBool(cfgOptStopAuto), false, "    check stop-auto");
 
         TEST_RESULT_LOG("P00   WARN: stop-auto option is only available in PostgreSQL >= 9.3");
@@ -1121,9 +1129,9 @@ testRun(void)
 
         argList = strLstNew();
         strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-        strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-        strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-        strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+        hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+        hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+        hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
         strLstAddZ(argList, "--" CFGOPT_CHECKSUM_PAGE);
         harnessCfgLoad(cfgCmdBackup, argList);
 
@@ -1135,7 +1143,9 @@ testRun(void)
             HRNPQ_MACRO_DONE()
         });
 
-        TEST_RESULT_VOID(dbFree(backupInit(infoBackupNew(PG_VERSION_93, PG_VERSION_93, NULL))->dbPrimary), "backup init");
+        TEST_RESULT_VOID(
+            dbFree(backupInit(infoBackupNew(PG_VERSION_93, PG_VERSION_93, pgCatalogTestVersion(PG_VERSION_93), NULL))->dbPrimary),
+            "backup init");
         TEST_RESULT_BOOL(cfgOptionBool(cfgOptChecksumPage), false, "    check checksum-page");
 
         TEST_RESULT_LOG(
@@ -1151,9 +1161,9 @@ testRun(void)
 
         argList = strLstNew();
         strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-        strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-        strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-        strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+        hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+        hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+        hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
         strLstAddZ(argList, "--no-" CFGOPT_CHECKSUM_PAGE);
         harnessCfgLoad(cfgCmdBackup, argList);
 
@@ -1165,7 +1175,9 @@ testRun(void)
             HRNPQ_MACRO_DONE()
         });
 
-        TEST_RESULT_VOID(dbFree(backupInit(infoBackupNew(PG_VERSION_93, PG_VERSION_93, NULL))->dbPrimary), "backup init");
+        TEST_RESULT_VOID(
+            dbFree(backupInit(infoBackupNew(PG_VERSION_93, PG_VERSION_93, pgCatalogTestVersion(PG_VERSION_93), NULL))->dbPrimary),
+            "backup init");
         TEST_RESULT_BOOL(cfgOptionBool(cfgOptChecksumPage), false, "    check checksum-page");
 
         // Create pg_control without page checksums
@@ -1181,7 +1193,9 @@ testRun(void)
             HRNPQ_MACRO_DONE()
         });
 
-        TEST_RESULT_VOID(dbFree(backupInit(infoBackupNew(PG_VERSION_93, PG_VERSION_93, NULL))->dbPrimary), "backup init");
+        TEST_RESULT_VOID(
+            dbFree(backupInit(infoBackupNew(PG_VERSION_93, PG_VERSION_93, pgCatalogTestVersion(PG_VERSION_93), NULL))->dbPrimary),
+            "backup init");
         TEST_RESULT_BOOL(cfgOptionBool(cfgOptChecksumPage), false, "    check checksum-page");
     }
 
@@ -1192,13 +1206,13 @@ testRun(void)
         const String *repoPath = strNewFmt("%s/repo", testPath());
 
         // -------------------------------------------------------------------------------------------------------------------------
-        TEST_TITLE("error when second does not advance after sleep");
+        TEST_TITLE("sleep retries and stall error");
 
         StringList *argList = strLstNew();
         strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-        strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-        strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-        strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+        hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+        hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+        hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
         harnessCfgLoad(cfgCmdBackup, argList);
 
         // Create pg_control
@@ -1211,16 +1225,26 @@ testRun(void)
             // Connect to primary
             HRNPQ_MACRO_OPEN_GE_92(1, "dbname='postgres' port=5432", PG_VERSION_93, strZ(pg1Path), false, NULL, NULL),
 
-            // Don't advance time after wait
+            // Advance the time slowly to force retries
             HRNPQ_MACRO_TIME_QUERY(1, 1575392588998),
             HRNPQ_MACRO_TIME_QUERY(1, 1575392588999),
+            HRNPQ_MACRO_TIME_QUERY(1, 1575392589001),
+
+            // Stall time to force an error
+            HRNPQ_MACRO_TIME_QUERY(1, 1575392589998),
+            HRNPQ_MACRO_TIME_QUERY(1, 1575392589997),
+            HRNPQ_MACRO_TIME_QUERY(1, 1575392589998),
+            HRNPQ_MACRO_TIME_QUERY(1, 1575392589999),
 
             HRNPQ_MACRO_DONE()
         });
 
-        BackupData *backupData = backupInit(infoBackupNew(PG_VERSION_93, PG_VERSION_93, NULL));
+        BackupData *backupData = backupInit(
+            infoBackupNew(PG_VERSION_93, PG_VERSION_93, pgCatalogTestVersion(PG_VERSION_93), NULL));
 
-        TEST_ERROR(backupTime(backupData, true), AssertError, "invalid sleep for online backup time with wait remainder");
+        TEST_RESULT_INT(backupTime(backupData, true), 1575392588, "multiple tries for sleep");
+        TEST_ERROR(backupTime(backupData, true), KernelError, "PostgreSQL clock has not advanced to the next second after 3 tries");
+
         dbFree(backupData->dbPrimary);
     }
 
@@ -1231,9 +1255,9 @@ testRun(void)
 
         StringList *argList = strLstNew();
         strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-        strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-        strLstAddZ(argList, "--" CFGOPT_PG1_PATH "=/pg");
-        strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+        hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+        hrnCfgArgRawZ(argList, cfgOptPgPath, "/pg");
+        hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
         strLstAddZ(argList, "--" CFGOPT_TYPE "=" BACKUP_TYPE_FULL);
         strLstAddZ(argList, "--no-" CFGOPT_COMPRESS);
         harnessCfgLoad(cfgCmdBackup, argList);
@@ -1430,8 +1454,8 @@ testRun(void)
         // Create stanza
         StringList *argList = strLstNew();
         strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-        strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-        strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
+        hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+        hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
         strLstAddZ(argList, "--no-" CFGOPT_ONLINE);
         harnessCfgLoad(cfgCmdStanzaCreate, argList);
 
@@ -1442,9 +1466,9 @@ testRun(void)
 
         argList = strLstNew();
         strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-        strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-        strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-        strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+        hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+        hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+        hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
         strLstAddZ(argList, "--no-" CFGOPT_ONLINE);
         harnessCfgLoad(cfgCmdBackup, argList);
 
@@ -1462,9 +1486,9 @@ testRun(void)
 
         argList = strLstNew();
         strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-        strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-        strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-        strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+        hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+        hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+        hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
         strLstAddZ(argList, "--no-" CFGOPT_ONLINE);
         strLstAddZ(argList, "--no-" CFGOPT_COMPRESS);
         strLstAddZ(argList, "--" CFGOPT_FORCE);
@@ -1494,12 +1518,12 @@ testRun(void)
 
         argList = strLstNew();
         strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-        strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-        strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-        strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+        hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+        hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+        hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
         strLstAddZ(argList, "--no-" CFGOPT_ONLINE);
         strLstAddZ(argList, "--" CFGOPT_COMPRESS);
-        strLstAddZ(argList, "--" CFGOPT_REPO1_HARDLINK);
+        hrnCfgArgRawBool(argList, cfgOptRepoHardlink, true);
         strLstAddZ(argList, "--" CFGOPT_TYPE "=" BACKUP_TYPE_DIFF);
         harnessCfgLoad(cfgCmdBackup, argList);
 
@@ -1515,9 +1539,9 @@ testRun(void)
 
         argList = strLstNew();
         strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-        strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-        strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-        strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+        hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+        hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+        hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
         strLstAddZ(argList, "--no-" CFGOPT_ONLINE);
         strLstAddZ(argList, "--no-" CFGOPT_COMPRESS);
         strLstAddZ(argList, "--" CFGOPT_CHECKSUM_PAGE);
@@ -1543,9 +1567,9 @@ testRun(void)
 
         argList = strLstNew();
         strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-        strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-        strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-        strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+        hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+        hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+        hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
         strLstAddZ(argList, "--no-" CFGOPT_ONLINE);
         strLstAddZ(argList, "--no-" CFGOPT_COMPRESS);
         strLstAddZ(argList, "--" CFGOPT_TYPE "=" BACKUP_TYPE_DIFF);
@@ -1605,8 +1629,8 @@ testRun(void)
             // Create stanza
             StringList *argList = strLstNew();
             strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-            strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-            strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
+            hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+            hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
             strLstAddZ(argList, "--no-" CFGOPT_ONLINE);
             harnessCfgLoad(cfgCmdStanzaCreate, argList);
 
@@ -1615,9 +1639,9 @@ testRun(void)
             // Load options
             argList = strLstNew();
             strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-            strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-            strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-            strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+            hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+            hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+            hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
             strLstAddZ(argList, "--" CFGOPT_TYPE "=" BACKUP_TYPE_FULL);
             strLstAddZ(argList, "--" CFGOPT_STOP_AUTO);
             strLstAddZ(argList, "--no-" CFGOPT_COMPRESS);
@@ -1634,7 +1658,8 @@ testRun(void)
             storagePathCreateP(storagePgWrite(), pgWalPath(PG_VERSION_95), .noParentCreate = true);
 
             // Create a backup manifest that looks like a halted backup manifest
-            Manifest *manifestResume = manifestNewBuild(storagePg(), PG_VERSION_95, true, false, NULL, NULL);
+            Manifest *manifestResume = manifestNewBuild(
+                storagePg(), PG_VERSION_95, pgCatalogTestVersion(PG_VERSION_95), true, false, NULL, NULL);
             ManifestData *manifestResumeData = (ManifestData *)manifestData(manifestResume);
 
             manifestResumeData->backupType = backupTypeFull;
@@ -1711,17 +1736,18 @@ testRun(void)
             // Load options
             StringList *argList = strLstNew();
             strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-            strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-            strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-            strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+            hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+            hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+            hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
             strLstAddZ(argList, "--" CFGOPT_TYPE "=" BACKUP_TYPE_FULL);
             strLstAddZ(argList, "--" CFGOPT_STOP_AUTO);
-            strLstAddZ(argList, "--" CFGOPT_REPO1_HARDLINK);
+            hrnCfgArgRawBool(argList, cfgOptRepoHardlink, true);
             strLstAddZ(argList, "--" CFGOPT_ARCHIVE_COPY);
             harnessCfgLoad(cfgCmdBackup, argList);
 
             // Create a backup manifest that looks like a halted backup manifest
-            Manifest *manifestResume = manifestNewBuild(storagePg(), PG_VERSION_95, true, false, NULL, NULL);
+            Manifest *manifestResume = manifestNewBuild(
+                storagePg(), PG_VERSION_95, pgCatalogTestVersion(PG_VERSION_95), true, false, NULL, NULL);
             ManifestData *manifestResumeData = (ManifestData *)manifestData(manifestResume);
 
             manifestResumeData->backupType = backupTypeFull;
@@ -1754,7 +1780,8 @@ testRun(void)
                 NULL);
             manifestFileAdd(
                 manifestResume, &(ManifestFile){
-                    .name = STRDEF("pg_data/size-mismatch"), .checksumSha1 = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", .size = 33});
+                    .name = STRDEF("pg_data/size-mismatch"), .checksumSha1 = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                    .size = 33});
 
             // Time does not match between cluster and resume manifest
             storagePutP(
@@ -1898,13 +1925,13 @@ testRun(void)
         {
             StringList *argList = strLstNew();
             strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-            strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-            strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-            strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+            hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+            hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+            hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
             strLstAddZ(argList, "--" CFGOPT_TYPE "=" BACKUP_TYPE_DIFF);
             strLstAddZ(argList, "--no-" CFGOPT_COMPRESS);
             strLstAddZ(argList, "--" CFGOPT_STOP_AUTO);
-            strLstAddZ(argList, "--" CFGOPT_REPO1_HARDLINK);
+            hrnCfgArgRawBool(argList, cfgOptRepoHardlink, true);
             harnessCfgLoad(cfgCmdBackup, argList);
 
             // Load the previous manifest and null out the checksum-page option to be sure it gets set to false in this backup
@@ -1914,7 +1941,8 @@ testRun(void)
             manifestSave(manifestPrior, storageWriteIo(storageNewWriteP(storageRepoWrite(), manifestPriorFile)));
 
             // Create a backup manifest that looks like a halted backup manifest
-            Manifest *manifestResume = manifestNewBuild(storagePg(), PG_VERSION_95, true, false, NULL, NULL);
+            Manifest *manifestResume = manifestNewBuild(
+                storagePg(), PG_VERSION_95, pgCatalogTestVersion(PG_VERSION_95), true, false, NULL, NULL);
             ManifestData *manifestResumeData = (ManifestData *)manifestData(manifestResume);
 
             manifestResumeData->backupType = backupTypeDiff;
@@ -1937,7 +1965,7 @@ testRun(void)
             manifestFileAdd(
                 manifestResume, &(ManifestFile){.name = STRDEF("pg_data/resume-ref"), .size = 0, .reference = STRDEF("BOGUS")});
 
-            // Time does not match between cluster and resume manifest (but resume because time is in future so delta enabled).  Note
+            // Time does not match between cluster and resume manifest (but resume because time is in future so delta enabled). Note
             // also that the repo file is intenionally corrupt to generate a warning about corruption in the repository.
             storagePutP(
                 storageNewWriteP(storagePgWrite(), STRDEF("time-mismatch2"), .timeModified = backupTimeStart + 100),
@@ -1993,8 +2021,8 @@ testRun(void)
                 "P01 DETAIL: match file from prior backup {[path]}/pg1/global/pg_control (8KB, [PCT]) checksum [SHA1]\n"
                 "P01 DETAIL: match file from prior backup {[path]}/pg1/postgresql.conf (11B, [PCT]) checksum [SHA1]\n"
                 "P00   WARN: resumed backup file pg_data/time-mismatch2 does not have expected checksum"
-                    " 984816fd329622876e14907634264e6f332e9fb3. The file will be recopied and backup will continue but this may be an"
-                    " issue unless the resumed backup path in the repository is known to be corrupted.\n"
+                    " 984816fd329622876e14907634264e6f332e9fb3. The file will be recopied and backup will continue but this may be"
+                    " an issue unless the resumed backup path in the repository is known to be corrupted.\n"
                 "            NOTE: this does not indicate a problem with the PostgreSQL page checksums.\n"
                 "P01   INFO: backup file {[path]}/pg1/time-mismatch2 (4B, [PCT]) checksum [SHA1]\n"
                 "P01 DETAIL: match file from prior backup {[path]}/pg1/PG_VERSION (3B, [PCT]) checksum [SHA1]\n"
@@ -2066,8 +2094,8 @@ testRun(void)
             // Upgrade stanza
             StringList *argList = strLstNew();
             strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-            strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-            strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
+            hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+            hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
             strLstAddZ(argList, "--no-" CFGOPT_ONLINE);
             harnessCfgLoad(cfgCmdStanzaUpgrade, argList);
 
@@ -2076,11 +2104,11 @@ testRun(void)
             // Load options
             argList = strLstNew();
             strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-            strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-            strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-            strLstAdd(argList, strNewFmt("--" CFGOPT_PG2_PATH "=%s", strZ(pg2Path)));
-            strLstAddZ(argList, "--" CFGOPT_PG2_PORT "=5433");
-            strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+            hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+            hrnCfgArgKeyRaw(argList, cfgOptPgPath, 1, pg1Path);
+            hrnCfgArgKeyRaw(argList, cfgOptPgPath, 2, pg2Path);
+            hrnCfgArgKeyRawZ(argList, cfgOptPgPort, 2, "5433");
+            hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
             strLstAddZ(argList, "--no-" CFGOPT_COMPRESS);
             strLstAddZ(argList, "--" CFGOPT_BACKUP_STANDBY);
             strLstAddZ(argList, "--" CFGOPT_START_FAST);
@@ -2089,28 +2117,28 @@ testRun(void)
 
             // Create file to copy from the standby. This file will be zero-length on the primary and non-zero-length on the standby
             // but no bytes will be copied.
-            storagePutP(storageNewWriteP(storagePgIdWrite(1), STRDEF(PG_PATH_BASE "/1/1"), .timeModified = backupTimeStart), NULL);
-            storagePutP(storageNewWriteP(storagePgIdWrite(2), STRDEF(PG_PATH_BASE "/1/1")), BUFSTRDEF("1234"));
+            storagePutP(storageNewWriteP(storagePgIdxWrite(0), STRDEF(PG_PATH_BASE "/1/1"), .timeModified = backupTimeStart), NULL);
+            storagePutP(storageNewWriteP(storagePgIdxWrite(1), STRDEF(PG_PATH_BASE "/1/1")), BUFSTRDEF("1234"));
 
             // Create file to copy from the standby. This file will be smaller on the primary than the standby and have no common
             // data in the bytes that exist on primary and standby.  If the file is copied from the primary instead of the standby
             // the checksum will change but not the size.
             storagePutP(
-                storageNewWriteP(storagePgIdWrite(1), STRDEF(PG_PATH_BASE "/1/2"), .timeModified = backupTimeStart),
+                storageNewWriteP(storagePgIdxWrite(0), STRDEF(PG_PATH_BASE "/1/2"), .timeModified = backupTimeStart),
                 BUFSTRDEF("DA"));
-            storagePutP(storageNewWriteP(storagePgIdWrite(2), STRDEF(PG_PATH_BASE "/1/2")), BUFSTRDEF("5678"));
+            storagePutP(storageNewWriteP(storagePgIdxWrite(1), STRDEF(PG_PATH_BASE "/1/2")), BUFSTRDEF("5678"));
 
             // Create file to copy from the standby. This file will be larger on the primary than the standby and have no common
             // data in the bytes that exist on primary and standby.  If the file is copied from the primary instead of the standby
             // the checksum and size will change.
             storagePutP(
-                storageNewWriteP(storagePgIdWrite(1), STRDEF(PG_PATH_BASE "/1/3"), .timeModified = backupTimeStart),
+                storageNewWriteP(storagePgIdxWrite(0), STRDEF(PG_PATH_BASE "/1/3"), .timeModified = backupTimeStart),
                 BUFSTRDEF("TEST"));
-            storagePutP(storageNewWriteP(storagePgIdWrite(2), STRDEF(PG_PATH_BASE "/1/3")), BUFSTRDEF("ABC"));
+            storagePutP(storageNewWriteP(storagePgIdxWrite(1), STRDEF(PG_PATH_BASE "/1/3")), BUFSTRDEF("ABC"));
 
             // Create a file on the primary that does not exist on the standby to test that the file is removed from the manifest
             storagePutP(
-                storageNewWriteP(storagePgIdWrite(1), STRDEF(PG_PATH_BASE "/1/0"), .timeModified = backupTimeStart),
+                storageNewWriteP(storagePgIdxWrite(0), STRDEF(PG_PATH_BASE "/1/0"), .timeModified = backupTimeStart),
                 BUFSTRDEF("DATA"));
 
             // Set log level to warn because the following test uses multiple processes so the log order will not be deterministic
@@ -2182,7 +2210,7 @@ testRun(void)
                 "compare file list");
 
             // Remove test files
-            storagePathRemoveP(storagePgIdWrite(2), NULL, .recurse = true);
+            storagePathRemoveP(storagePgIdxWrite(1), NULL, .recurse = true);
             storagePathRemoveP(storagePgWrite(), STRDEF("base/1"), .recurse = true);
         }
 
@@ -2214,8 +2242,8 @@ testRun(void)
             // Upgrade stanza
             StringList *argList = strLstNew();
             strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-            strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-            strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
+            hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+            hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
             strLstAddZ(argList, "--no-" CFGOPT_ONLINE);
             harnessCfgLoad(cfgCmdStanzaUpgrade, argList);
 
@@ -2224,11 +2252,11 @@ testRun(void)
             // Load options
             argList = strLstNew();
             strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-            strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-            strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-            strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+            hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+            hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+            hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
             strLstAddZ(argList, "--" CFGOPT_TYPE "=" BACKUP_TYPE_FULL);
-            strLstAddZ(argList, "--" CFGOPT_REPO1_HARDLINK);
+            hrnCfgArgRawBool(argList, cfgOptRepoHardlink, true);
             strLstAddZ(argList, "--" CFGOPT_MANIFEST_SAVE_THRESHOLD "=1");
             strLstAddZ(argList, "--" CFGOPT_ARCHIVE_COPY);
             harnessCfgLoad(cfgCmdBackup, argList);
@@ -2287,7 +2315,8 @@ testRun(void)
 
             storagePutP(
                 storageNewWriteP(
-                    storageTest, strNewFmt("pg1-tblspc/32768/%s/1/5", strZ(pgTablespaceId(PG_VERSION_11))),
+                    storageTest,
+                    strNewFmt("pg1-tblspc/32768/%s/1/5", strZ(pgTablespaceId(PG_VERSION_11, pgCatalogTestVersion(PG_VERSION_11)))),
                     .timeModified = backupTimeStart),
                 NULL);
 
@@ -2409,11 +2438,11 @@ testRun(void)
             // Load options
             StringList *argList = strLstNew();
             strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-            strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-            strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-            strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+            hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+            hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+            hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
             strLstAddZ(argList, "--" CFGOPT_TYPE "=" BACKUP_TYPE_INCR);
-            strLstAddZ(argList, "--" CFGOPT_REPO1_HARDLINK);
+            hrnCfgArgRawBool(argList, cfgOptRepoHardlink, true);
             harnessCfgLoad(cfgCmdBackup, argList);
 
             // Run backup
@@ -2443,12 +2472,12 @@ testRun(void)
             // Load options
             StringList *argList = strLstNew();
             strLstAddZ(argList, "--" CFGOPT_STANZA "=test1");
-            strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_PATH "=%s", strZ(repoPath)));
-            strLstAdd(argList, strNewFmt("--" CFGOPT_PG1_PATH "=%s", strZ(pg1Path)));
-            strLstAddZ(argList, "--" CFGOPT_REPO1_RETENTION_FULL "=1");
+            hrnCfgArgRaw(argList, cfgOptRepoPath, repoPath);
+            hrnCfgArgRaw(argList, cfgOptPgPath, pg1Path);
+            hrnCfgArgRawZ(argList, cfgOptRepoRetentionFull, "1");
             strLstAddZ(argList, "--" CFGOPT_TYPE "=" BACKUP_TYPE_INCR);
             strLstAddZ(argList, "--" CFGOPT_DELTA);
-            strLstAddZ(argList, "--" CFGOPT_REPO1_HARDLINK);
+            hrnCfgArgRawBool(argList, cfgOptRepoHardlink, true);
             harnessCfgLoad(cfgCmdBackup, argList);
 
             // Update pg_control timestamp
@@ -2503,7 +2532,8 @@ testRun(void)
                 "--------\n"
                 "[backup:target]\n"
                 "pg_data={\"path\":\"{[path]}/pg1\",\"type\":\"path\"}\n"
-                "pg_tblspc/32768={\"path\":\"../../pg1-tblspc/32768\",\"tablespace-id\":\"32768\",\"tablespace-name\":\"tblspc32768\",\"type\":\"link\"}\n"
+                "pg_tblspc/32768={\"path\":\"../../pg1-tblspc/32768\",\"tablespace-id\":\"32768\""
+                    ",\"tablespace-name\":\"tblspc32768\",\"type\":\"link\"}\n"
                 "\n"
                 "[target:file]\n"
                 "pg_data/PG_VERSION={\"checksum\":\"17ba0791499db908433b80f37c5fbc89b870084b\",\"reference\":\"20191027-181320F\""

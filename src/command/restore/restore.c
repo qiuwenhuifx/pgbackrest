@@ -40,6 +40,8 @@ Recovery constants
 #define RECOVERY_TARGET_XID                                         "recovery_target_xid"
 
 #define RECOVERY_TARGET_ACTION                                      "recovery_target_action"
+#define RECOVERY_TARGET_ACTION_PAUSE                                "pause"
+    STRING_STATIC(RECOVERY_TARGET_ACTION_PAUSE_STR,                 RECOVERY_TARGET_ACTION_PAUSE);
 #define RECOVERY_TARGET_ACTION_SHUTDOWN                             "shutdown"
     STRING_STATIC(RECOVERY_TARGET_ACTION_SHUTDOWN_STR,              RECOVERY_TARGET_ACTION_SHUTDOWN);
 
@@ -933,7 +935,8 @@ restoreCleanBuild(Manifest *manifest)
             // If this is a tablespace append the tablespace identifier
             if (cleanData->target->type == manifestTargetTypeLink && cleanData->target->tablespaceId != 0)
             {
-                const String *tablespaceId = pgTablespaceId(manifestData(manifest)->pgVersion);
+                const String *tablespaceId = pgTablespaceId(
+                    manifestData(manifest)->pgVersion, manifestData(manifest)->pgCatalogVersion);
 
                 // Only PostgreSQL >= 9.0 has tablespace indentifiers
                 if (tablespaceId != NULL)
@@ -1181,7 +1184,8 @@ restoreSelectiveExpression(Manifest *manifest)
 
             // Generate tablespace expression
             RegExp *tablespaceRegExp = NULL;
-            const String *tablespaceId = pgTablespaceId(manifestData(manifest)->pgVersion);
+            const String *tablespaceId = pgTablespaceId(
+                manifestData(manifest)->pgVersion, manifestData(manifest)->pgCatalogVersion);
 
             if (tablespaceId == NULL)
                 tablespaceRegExp = regExpNew(STRDEF("^" MANIFEST_TARGET_PGTBLSPC "/[0-9]+/[0-9]+/" PG_FILE_PGVERSION));
@@ -1362,6 +1366,7 @@ restoreRecoveryOption(unsigned int pgVersion)
             // better than, for example, passing --process-max=32 to archive-get because it was specified for restore.
             KeyValue *optionReplace = kvNew();
 
+            kvPut(optionReplace, VARSTR(CFGOPT_EXEC_ID_STR), NULL);
             kvPut(optionReplace, VARSTR(CFGOPT_LOG_LEVEL_CONSOLE_STR), NULL);
             kvPut(optionReplace, VARSTR(CFGOPT_LOG_LEVEL_FILE_STR), NULL);
             kvPut(optionReplace, VARSTR(CFGOPT_LOG_LEVEL_STDERR_STR), NULL);
@@ -1407,7 +1412,7 @@ restoreRecoveryOption(unsigned int pgVersion)
         {
             const String *targetAction = cfgOptionStr(cfgOptTargetAction);
 
-            if (!strEqZ(targetAction, cfgDefOptionDefault(cfgDefCmdRestore, cfgDefOptTargetAction)))
+            if (!strEq(targetAction, RECOVERY_TARGET_ACTION_PAUSE_STR))
             {
                 // Write recovery_target on supported PostgreSQL versions
                 if (pgVersion >= PG_VERSION_RECOVERY_TARGET_ACTION)
@@ -1624,19 +1629,21 @@ restoreRecoveryWriteAutoConf(unsigned int pgVersion, const String *restoreLabel)
                 .noAtomic = true, .noSyncPath = true, .user = dataPath.user, .group = dataPath.group),
             BUFSTR(content));
 
-        // The recovery.signal file is required for targeted recovery
-        storagePutP(
-            storageNewWriteP(
-                storagePgWrite(), PG_FILE_RECOVERYSIGNAL_STR, .noCreatePath = true, .modeFile = recoveryFileMode,
-                .noAtomic = true, .noSyncPath = true, .user = dataPath.user, .group = dataPath.group),
-            NULL);
-
         // The standby.signal file is required for standby mode
         if (strEq(cfgOptionStr(cfgOptType), RECOVERY_TYPE_STANDBY_STR))
         {
             storagePutP(
                 storageNewWriteP(
                     storagePgWrite(), PG_FILE_STANDBYSIGNAL_STR, .noCreatePath = true, .modeFile = recoveryFileMode,
+                    .noAtomic = true, .noSyncPath = true, .user = dataPath.user, .group = dataPath.group),
+                NULL);
+        }
+        // Else the recovery.signal file is required for targeted recovery
+        else
+        {
+            storagePutP(
+                storageNewWriteP(
+                    storagePgWrite(), PG_FILE_RECOVERYSIGNAL_STR, .noCreatePath = true, .modeFile = recoveryFileMode,
                     .noAtomic = true, .noSyncPath = true, .user = dataPath.user, .group = dataPath.group),
                 NULL);
         }
@@ -2089,10 +2096,10 @@ cmdRestore(void)
 
         // Create the parallel executor
         ProtocolParallel *parallelExec = protocolParallelNew(
-            (TimeMSec)(cfgOptionDbl(cfgOptProtocolTimeout) * MSEC_PER_SEC) / 2, restoreJobCallback, &jobData);
+            cfgOptionUInt64(cfgOptProtocolTimeout) / 2, restoreJobCallback, &jobData);
 
         for (unsigned int processIdx = 1; processIdx <= cfgOptionUInt(cfgOptProcessMax); processIdx++)
-            protocolParallelClientAdd(parallelExec, protocolLocalGet(protocolStorageTypeRepo, 1, processIdx));
+            protocolParallelClientAdd(parallelExec, protocolLocalGet(protocolStorageTypeRepo, 0, processIdx));
 
         // Process jobs
         uint64_t sizeRestored = 0;

@@ -96,6 +96,7 @@ use constant CFGCMD_STANZA_DELETE                                   => 'stanza-d
 use constant CFGCMD_STANZA_UPGRADE                                  => 'stanza-upgrade';
 use constant CFGCMD_START                                           => 'start';
 use constant CFGCMD_STOP                                            => 'stop';
+use constant CFGCMD_VERIFY                                          => 'verify';
 use constant CFGCMD_VERSION                                         => 'version';
 
 ####################################################################################################################################
@@ -124,8 +125,8 @@ use constant CFGOPT_OUTPUT                                          => 'output';
 
 # Command-line only local/remote options
 #-----------------------------------------------------------------------------------------------------------------------------------
+use constant CFGOPT_EXEC_ID                                         => 'exec-id';
 use constant CFGOPT_PROCESS                                         => 'process';
-use constant CFGOPT_HOST_ID                                         => 'host-id';
 use constant CFGOPT_REMOTE_TYPE                                     => 'remote-type';
 
 # Command-line only storage options
@@ -184,6 +185,9 @@ use constant CFGDEF_INDEX_REPO                                      => 1;
 # Prefix that must be used by all repo options that allow multiple configurations
 use constant CFGDEF_PREFIX_REPO                                     => 'repo';
 
+# Set default repository
+use constant CFGOPT_REPO                                            => CFGDEF_PREFIX_REPO;
+
 # Repository General
 use constant CFGOPT_REPO_CIPHER_TYPE                                => CFGDEF_PREFIX_REPO . '-cipher-type';
 use constant CFGOPT_REPO_CIPHER_PASS                                => CFGDEF_PREFIX_REPO . '-cipher-pass';
@@ -217,6 +221,7 @@ use constant CFGOPT_REPO_AZURE_ACCOUNT                              => CFGDEF_RE
 use constant CFGOPT_REPO_AZURE_CA_FILE                              => CFGDEF_REPO_AZURE . '-ca-file';
 use constant CFGOPT_REPO_AZURE_CA_PATH                              => CFGDEF_REPO_AZURE . '-ca-path';
 use constant CFGOPT_REPO_AZURE_CONTAINER                            => CFGDEF_REPO_AZURE . '-container';
+use constant CFGOPT_REPO_AZURE_ENDPOINT                             => CFGDEF_REPO_AZURE . '-endpoint';
 use constant CFGOPT_REPO_AZURE_HOST                                 => CFGDEF_REPO_AZURE . '-host';
 use constant CFGOPT_REPO_AZURE_KEY                                  => CFGDEF_REPO_AZURE . '-key';
 use constant CFGOPT_REPO_AZURE_KEY_TYPE                             => CFGDEF_REPO_AZURE . '-key-type';
@@ -279,6 +284,9 @@ use constant CFGDEF_INDEX_PG                                        => 8;
 use constant CFGDEF_PREFIX_PG                                       => 'pg';
     push @EXPORT, qw(CFGDEF_PREFIX_PG);
 
+# Set default PostgreSQL cluster
+use constant CFGOPT_PG                                              => CFGDEF_PREFIX_PG;
+
 use constant CFGOPT_PG_LOCAL                                        => CFGDEF_PREFIX_PG . '-local';
 
 use constant CFGOPT_PG_HOST                                         => CFGDEF_PREFIX_PG . '-host';
@@ -290,6 +298,7 @@ use constant CFGOPT_PG_HOST_CONFIG_PATH                             => CFGOPT_PG
 use constant CFGOPT_PG_HOST_PORT                                    => CFGOPT_PG_HOST . '-port';
 use constant CFGOPT_PG_HOST_USER                                    => CFGOPT_PG_HOST . '-user';
 
+use constant CFGOPT_PG_DATABASE                                     => CFGDEF_PREFIX_PG . '-database';
 use constant CFGOPT_PG_PATH                                         => CFGDEF_PREFIX_PG . '-path';
 use constant CFGOPT_PG_PORT                                         => CFGDEF_PREFIX_PG . '-port';
 use constant CFGOPT_PG_SOCKET_PATH                                  => CFGDEF_PREFIX_PG . '-socket-path';
@@ -429,6 +438,11 @@ use constant CFGDEF_DEPEND_OPTION                                   => 'depend-o
     push @EXPORT, qw(CFGDEF_DEPEND_OPTION);
 use constant CFGDEF_DEPEND_LIST                                     => 'depend-list';
     push @EXPORT, qw(CFGDEF_DEPEND_LIST);
+
+# Group options together to share common configuration
+use constant CFGDEF_GROUP                                           => 'group';
+    push @EXPORT, qw(CFGDEF_GROUP);
+
 use constant CFGDEF_INDEX                                           => 'index';
     push @EXPORT, qw(CFGDEF_INDEX);
 use constant CFGDEF_INDEX_TOTAL                                     => 'indexTotal';
@@ -460,8 +474,6 @@ use constant CFGDEF_TYPE                                            => 'type';
 #-----------------------------------------------------------------------------------------------------------------------------------
 use constant CFGDEF_TYPE_BOOLEAN                                    => 'boolean';
     push @EXPORT, qw(CFGDEF_TYPE_BOOLEAN);
-use constant CFGDEF_TYPE_FLOAT                                      => 'float';
-    push @EXPORT, qw(CFGDEF_TYPE_FLOAT);
 use constant CFGDEF_TYPE_HASH                                       => 'hash';
     push @EXPORT, qw(CFGDEF_TYPE_HASH);
 use constant CFGDEF_TYPE_INTEGER                                    => 'integer';
@@ -474,6 +486,8 @@ use constant CFGDEF_TYPE_STRING                                     => 'string';
     push @EXPORT, qw(CFGDEF_TYPE_STRING);
 use constant CFGDEF_TYPE_SIZE                                       => 'size';
     push @EXPORT, qw(CFGDEF_TYPE_SIZE);
+use constant CFGDEF_TYPE_TIME                                       => 'time';
+    push @EXPORT, qw(CFGDEF_TYPE_TIME);
 
 # Option config sections
 #-----------------------------------------------------------------------------------------------------------------------------------
@@ -601,10 +615,39 @@ my $rhCommandDefine =
     {
     },
 
+    &CFGCMD_VERIFY =>
+    {
+        &CFGDEF_INTERNAL => true,
+    },
+
     &CFGCMD_VERSION =>
     {
         &CFGDEF_LOG_FILE => false,
         &CFGDEF_LOG_LEVEL_DEFAULT => DEBUG,
+    },
+};
+
+####################################################################################################################################
+# Option group definition data
+#
+# Options groups allow related options to be grouped together so, e.g. test and valid, operations can be run across all options in
+# the group.
+####################################################################################################################################
+use constant CFGOPTGRP_PG                                           => CFGDEF_PREFIX_PG;
+use constant CFGOPTGRP_REPO                                         => CFGDEF_PREFIX_REPO;
+
+my $rhOptionGroupDefine =
+{
+    &CFGOPTGRP_PG =>
+    {
+        &CFGDEF_PREFIX => CFGDEF_PREFIX_PG,
+        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_PG,
+    },
+
+    &CFGOPTGRP_REPO =>
+    {
+        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
+        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
     },
 };
 
@@ -639,6 +682,7 @@ my %hConfigDefine =
             &CFGCMD_STANZA_UPGRADE => {},
             &CFGCMD_START => {},
             &CFGCMD_STOP => {},
+            &CFGCMD_VERIFY => {},
         }
     },
 
@@ -740,6 +784,11 @@ my %hConfigDefine =
             {
                 &CFGDEF_DEFAULT => 'latest',
             },
+            &CFGCMD_VERIFY =>
+            {
+                &CFGDEF_REQUIRED => false,
+                &CFGDEF_INTERNAL => true,
+            },
         }
     },
 
@@ -788,7 +837,8 @@ my %hConfigDefine =
             &CFGCMD_STOP =>
             {
                 &CFGDEF_REQUIRED => false
-            }
+            },
+            &CFGCMD_VERIFY => {},
         }
     },
 
@@ -952,19 +1002,11 @@ my %hConfigDefine =
 
     # Command-line only local/remote options
     #-------------------------------------------------------------------------------------------------------------------------------
-    &CFGOPT_HOST_ID =>
+    &CFGOPT_EXEC_ID =>
     {
-        &CFGDEF_TYPE => CFGDEF_TYPE_INTEGER,
+        &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
         &CFGDEF_REQUIRED => false,
         &CFGDEF_INTERNAL => true,
-        &CFGDEF_ALLOW_RANGE => [1, CFGDEF_INDEX_PG > CFGDEF_INDEX_REPO ? CFGDEF_INDEX_PG : CFGDEF_INDEX_REPO],
-        &CFGDEF_COMMAND =>
-        {
-            &CFGCMD_ARCHIVE_GET => {},
-            &CFGCMD_ARCHIVE_PUSH => {},
-            &CFGCMD_BACKUP => {},
-            &CFGCMD_RESTORE => {},
-        },
     },
 
     &CFGOPT_PROCESS =>
@@ -989,6 +1031,7 @@ my %hConfigDefine =
             &CFGCMD_STANZA_CREATE => {},
             &CFGCMD_STANZA_DELETE => {},
             &CFGCMD_STANZA_UPGRADE => {},
+            &CFGCMD_VERIFY => {},
         },
     },
 
@@ -1018,6 +1061,7 @@ my %hConfigDefine =
             &CFGCMD_STANZA_CREATE => {},
             &CFGCMD_STANZA_DELETE => {},
             &CFGCMD_STANZA_UPGRADE => {},
+            &CFGCMD_VERIFY => {},
         },
     },
 
@@ -1098,7 +1142,7 @@ my %hConfigDefine =
     &CFGOPT_ARCHIVE_TIMEOUT =>
     {
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
-        &CFGDEF_TYPE => CFGDEF_TYPE_FLOAT,
+        &CFGDEF_TYPE => CFGDEF_TYPE_TIME,
         &CFGDEF_DEFAULT => 60,
         &CFGDEF_ALLOW_RANGE => [WAIT_TIME_MINIMUM, 86400],
         &CFGDEF_COMMAND =>
@@ -1146,6 +1190,7 @@ my %hConfigDefine =
             &CFGCMD_STANZA_CREATE => {},
             &CFGCMD_STANZA_DELETE => {},
             &CFGCMD_STANZA_UPGRADE => {},
+            &CFGCMD_VERIFY => {},
         }
     },
 
@@ -1203,7 +1248,7 @@ my %hConfigDefine =
     &CFGOPT_DB_TIMEOUT =>
     {
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
-        &CFGDEF_TYPE => CFGDEF_TYPE_FLOAT,
+        &CFGDEF_TYPE => CFGDEF_TYPE_TIME,
         &CFGDEF_DEFAULT => CFGDEF_DEFAULT_DB_TIMEOUT,
         &CFGDEF_ALLOW_RANGE => [CFGDEF_DEFAULT_DB_TIMEOUT_MIN, CFGDEF_DEFAULT_DB_TIMEOUT_MAX],
         &CFGDEF_COMMAND =>
@@ -1293,6 +1338,7 @@ my %hConfigDefine =
             &CFGCMD_STANZA_CREATE => {},
             &CFGCMD_STANZA_DELETE => {},
             &CFGCMD_STANZA_UPGRADE => {},
+            &CFGCMD_VERIFY => {},
         }
     },
 
@@ -1319,6 +1365,7 @@ my %hConfigDefine =
             &CFGCMD_STANZA_UPGRADE => {},
             &CFGCMD_START => {},
             &CFGCMD_STOP => {},
+            &CFGCMD_VERIFY => {},
         }
     },
 
@@ -1346,13 +1393,14 @@ my %hConfigDefine =
             &CFGCMD_STANZA_UPGRADE => {},
             &CFGCMD_START => {},
             &CFGCMD_STOP => {},
+            &CFGCMD_VERIFY => {},
         },
     },
 
     &CFGOPT_IO_TIMEOUT =>
     {
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
-        &CFGDEF_TYPE => CFGDEF_TYPE_FLOAT,
+        &CFGDEF_TYPE => CFGDEF_TYPE_TIME,
         &CFGDEF_DEFAULT => 60,
         &CFGDEF_ALLOW_RANGE => [.1, 3600],
         &CFGDEF_COMMAND => CFGOPT_BUFFER_SIZE,
@@ -1403,13 +1451,14 @@ my %hConfigDefine =
             &CFGCMD_STANZA_UPGRADE => {},
             &CFGCMD_START => {},
             &CFGCMD_STOP => {},
+            &CFGCMD_VERIFY => {},
         },
     },
 
     &CFGOPT_PROTOCOL_TIMEOUT =>
     {
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
-        &CFGDEF_TYPE => CFGDEF_TYPE_FLOAT,
+        &CFGDEF_TYPE => CFGDEF_TYPE_TIME,
         &CFGDEF_DEFAULT => CFGDEF_DEFAULT_DB_TIMEOUT + 30,
         &CFGDEF_ALLOW_RANGE => [CFGDEF_DEFAULT_DB_TIMEOUT_MIN, CFGDEF_DEFAULT_DB_TIMEOUT_MAX],
         &CFGDEF_COMMAND =>
@@ -1428,17 +1477,29 @@ my %hConfigDefine =
             &CFGCMD_STANZA_CREATE => {},
             &CFGCMD_STANZA_DELETE => {},
             &CFGCMD_STANZA_UPGRADE => {},
+            &CFGCMD_VERIFY => {},
         }
+    },
+
+    # Repository selector
+    #-------------------------------------------------------------------------------------------------------------------------------
+    &CFGOPT_REPO =>
+    {
+        &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
+        &CFGDEF_TYPE => CFGDEF_TYPE_INTEGER,
+        &CFGDEF_INTERNAL => true,
+        &CFGDEF_REQUIRED => false,
+        &CFGDEF_ALLOW_RANGE => [1, CFGDEF_INDEX_REPO],
+        &CFGDEF_COMMAND => CFGOPT_REPO_TYPE,
     },
 
     # Repository options
     #-------------------------------------------------------------------------------------------------------------------------------
     &CFGOPT_REPO_CIPHER_PASS =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_SECURE => true,
         &CFGDEF_REQUIRED => true,
         &CFGDEF_DEPEND =>
@@ -1455,10 +1516,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_CIPHER_TYPE =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_DEFAULT => CFGOPTVAL_REPO_CIPHER_TYPE_NONE,
         &CFGDEF_ALLOW_LIST =>
         [
@@ -1474,10 +1534,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_HARDLINK =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_BOOLEAN,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_NAME_ALT =>
         {
             'hardlink' => {&CFGDEF_INDEX => 1, &CFGDEF_RESET => false},
@@ -1491,11 +1550,10 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_LOCAL =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_INTERNAL => true,
         &CFGDEF_TYPE => CFGDEF_TYPE_BOOLEAN,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_DEFAULT => false,
         &CFGDEF_COMMAND =>
         {
@@ -1531,15 +1589,15 @@ my %hConfigDefine =
             },
             &CFGCMD_START => {},
             &CFGCMD_STOP => {},
+            &CFGCMD_VERIFY => {},
         },
     },
 
     &CFGOPT_REPO_HOST =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_REQUIRED => false,
         &CFGDEF_NAME_ALT =>
         {
@@ -1555,10 +1613,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_HOST_CMD =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_REQUIRED => false,
         &CFGDEF_NAME_ALT =>
         {
@@ -1578,6 +1635,7 @@ my %hConfigDefine =
             &CFGCMD_RESTORE => {},
             &CFGCMD_START => {},
             &CFGCMD_STOP => {},
+            &CFGCMD_VERIFY => {},
         },
         &CFGDEF_DEPEND =>
         {
@@ -1587,10 +1645,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_HOST_CONFIG =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_DEFAULT => CFGDEF_DEFAULT_CONFIG,
         &CFGDEF_NAME_ALT =>
         {
@@ -1619,10 +1676,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_HOST_PORT =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_INTEGER,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_ALLOW_RANGE => [CFGDEF_DEFAULT_PROTOCOL_PORT_MIN, CFGDEF_DEFAULT_PROTOCOL_PORT_MAX],
         &CFGDEF_REQUIRED => false,
         &CFGDEF_NAME_ALT =>
@@ -1638,10 +1694,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_HOST_USER =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_DEFAULT => PROJECT_EXE,
         &CFGDEF_NAME_ALT =>
         {
@@ -1657,10 +1712,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_PATH =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_PATH,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_DEFAULT => '/var/lib/' . PROJECT_EXE,
         &CFGDEF_NAME_ALT =>
         {
@@ -1671,10 +1725,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_RETENTION_ARCHIVE =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_INTEGER,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_REQUIRED => false,
         &CFGDEF_ALLOW_RANGE => [CFGDEF_DEFAULT_RETENTION_MIN, CFGDEF_DEFAULT_RETENTION_MAX],
         &CFGDEF_NAME_ALT =>
@@ -1690,10 +1743,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_RETENTION_ARCHIVE_TYPE =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_DEFAULT => CFGOPTVAL_BACKUP_TYPE_FULL,
         &CFGDEF_COMMAND =>
         {
@@ -1714,10 +1766,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_RETENTION_DIFF =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_INTEGER,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_REQUIRED => false,
         &CFGDEF_ALLOW_RANGE => [CFGDEF_DEFAULT_RETENTION_MIN, CFGDEF_DEFAULT_RETENTION_MAX],
         &CFGDEF_NAME_ALT =>
@@ -1733,10 +1784,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_RETENTION_FULL =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_INTEGER,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_REQUIRED => false,
         &CFGDEF_ALLOW_RANGE => [CFGDEF_DEFAULT_RETENTION_MIN, CFGDEF_DEFAULT_RETENTION_MAX],
         &CFGDEF_NAME_ALT =>
@@ -1748,10 +1798,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_RETENTION_FULL_TYPE =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_DEFAULT => 'count',
         &CFGDEF_ALLOW_LIST =>
         [
@@ -1767,10 +1816,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_AZURE_ACCOUNT =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_SECURE => true,
         &CFGDEF_REQUIRED => true,
         &CFGDEF_DEPEND =>
@@ -1794,20 +1842,24 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_AZURE_CONTAINER =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_DEPEND => CFGOPT_REPO_AZURE_ACCOUNT,
         &CFGDEF_COMMAND => CFGOPT_REPO_TYPE,
     },
 
+    &CFGOPT_REPO_AZURE_ENDPOINT =>
+    {
+        &CFGDEF_INHERIT => CFGOPT_REPO_AZURE_HOST,
+        &CFGDEF_DEFAULT => 'blob.core.windows.net',
+    },
+
     &CFGOPT_REPO_AZURE_HOST =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_REQUIRED => false,
         &CFGDEF_DEPEND => CFGOPT_REPO_AZURE_ACCOUNT,
         &CFGDEF_COMMAND => CFGOPT_REPO_TYPE,
@@ -1831,10 +1883,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_AZURE_PORT =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_INTEGER,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_DEFAULT => 443,
         &CFGDEF_ALLOW_RANGE => [1, 65535],
         &CFGDEF_DEPEND => CFGOPT_REPO_AZURE_ACCOUNT,
@@ -1843,10 +1894,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_AZURE_VERIFY_TLS =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_BOOLEAN,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_DEFAULT => true,
         &CFGDEF_DEPEND => CFGOPT_REPO_AZURE_ACCOUNT,
         &CFGDEF_COMMAND => CFGOPT_REPO_TYPE,
@@ -1854,9 +1904,8 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_S3_BUCKET =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_DEPEND =>
         {
@@ -1902,10 +1951,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_S3_KEY =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_SECURE => true,
         &CFGDEF_REQUIRED => true,
         &CFGDEF_DEPEND =>
@@ -1936,6 +1984,7 @@ my %hConfigDefine =
             &CFGCMD_STANZA_UPGRADE => {},
             &CFGCMD_START => {},
             &CFGCMD_STOP => {},
+            &CFGCMD_VERIFY => {},
         },
     },
 
@@ -1959,10 +2008,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_S3_HOST =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_REQUIRED => false,
         &CFGDEF_DEPEND => CFGOPT_REPO_S3_BUCKET,
         &CFGDEF_NAME_ALT =>
@@ -1974,10 +2022,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_S3_PORT =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_INTEGER,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_DEFAULT => 443,
         &CFGDEF_ALLOW_RANGE => [1, 65535],
         &CFGDEF_DEPEND => CFGOPT_REPO_S3_BUCKET,
@@ -2013,10 +2060,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_S3_URI_STYLE =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_DEFAULT => CFGOPTVAL_REPO_S3_URI_STYLE_HOST,
         &CFGDEF_ALLOW_LIST =>
         [
@@ -2029,10 +2075,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_S3_VERIFY_TLS =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_BOOLEAN,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_DEFAULT => true,
         &CFGDEF_NAME_ALT =>
         {
@@ -2045,10 +2090,9 @@ my %hConfigDefine =
 
     &CFGOPT_REPO_TYPE =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_REPO,
         &CFGDEF_SECTION => CFGDEF_SECTION_GLOBAL,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_REPO,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_REPO,
         &CFGDEF_DEFAULT => CFGOPTVAL_REPO_TYPE_POSIX,
         &CFGDEF_ALLOW_LIST =>
         [
@@ -2080,6 +2124,7 @@ my %hConfigDefine =
             &CFGCMD_STANZA_UPGRADE => {},
             &CFGCMD_START => {},
             &CFGCMD_STOP => {},
+            &CFGCMD_VERIFY => {},
         },
     },
 
@@ -2121,6 +2166,7 @@ my %hConfigDefine =
             &CFGCMD_ARCHIVE_PUSH => {},
             &CFGCMD_BACKUP => {},
             &CFGCMD_RESTORE => {},
+            &CFGCMD_VERIFY => {},
         }
     },
 
@@ -2160,6 +2206,7 @@ my %hConfigDefine =
             &CFGCMD_STANZA_UPGRADE => {},
             &CFGCMD_START => {},
             &CFGCMD_STOP => {},
+            &CFGCMD_VERIFY => {},
         }
     },
 
@@ -2188,6 +2235,7 @@ my %hConfigDefine =
             &CFGCMD_STANZA_UPGRADE => {},
             &CFGCMD_START => {},
             &CFGCMD_STOP => {},
+            &CFGCMD_VERIFY => {},
         }
     },
 
@@ -2216,6 +2264,7 @@ my %hConfigDefine =
             &CFGCMD_STANZA_UPGRADE => {},
             &CFGCMD_START => {},
             &CFGCMD_STOP => {},
+            &CFGCMD_VERIFY => {},
         }
     },
 
@@ -2243,6 +2292,7 @@ my %hConfigDefine =
             &CFGCMD_STANZA_UPGRADE => {},
             &CFGCMD_START => {},
             &CFGCMD_STOP => {},
+            &CFGCMD_VERIFY => {},
         }
     },
 
@@ -2526,13 +2576,43 @@ my %hConfigDefine =
 
     # Stanza options
     #-------------------------------------------------------------------------------------------------------------------------------
+    &CFGOPT_PG =>
+    {
+        &CFGDEF_SECTION => CFGDEF_SECTION_STANZA,
+        &CFGDEF_TYPE => CFGDEF_TYPE_INTEGER,
+        &CFGDEF_INTERNAL => true,
+        &CFGDEF_REQUIRED => false,
+        &CFGDEF_ALLOW_RANGE => [1, CFGDEF_INDEX_PG],
+        &CFGDEF_COMMAND =>
+        {
+            &CFGCMD_ARCHIVE_GET => {},
+            &CFGCMD_ARCHIVE_PUSH => {},
+            &CFGCMD_BACKUP =>
+            {
+                &CFGDEF_INTERNAL => true,
+            },
+            &CFGCMD_CHECK =>
+            {
+                &CFGDEF_INTERNAL => true,
+            },
+            &CFGCMD_RESTORE => {},
+            &CFGCMD_STANZA_CREATE =>
+            {
+                &CFGDEF_INTERNAL => true,
+            },
+            &CFGCMD_STANZA_UPGRADE =>
+            {
+                &CFGDEF_INTERNAL => true,
+            },
+        },
+    },
+
     &CFGOPT_PG_LOCAL =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_PG,
         &CFGDEF_SECTION => CFGDEF_SECTION_STANZA,
         &CFGDEF_INTERNAL => true,
         &CFGDEF_TYPE => CFGDEF_TYPE_BOOLEAN,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_PG,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_PG,
         &CFGDEF_DEFAULT => false,
         &CFGDEF_COMMAND =>
         {
@@ -2561,10 +2641,9 @@ my %hConfigDefine =
 
     &CFGOPT_PG_HOST =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_PG,
         &CFGDEF_SECTION => CFGDEF_SECTION_STANZA,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_PG,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_PG,
         &CFGDEF_REQUIRED => false,
         &CFGDEF_NAME_ALT =>
         {
@@ -2581,10 +2660,9 @@ my %hConfigDefine =
 
     &CFGOPT_PG_HOST_CMD =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_PG,
         &CFGDEF_SECTION => CFGDEF_SECTION_STANZA,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_PG,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_PG,
         &CFGDEF_REQUIRED => false,
         &CFGDEF_NAME_ALT =>
         {
@@ -2659,12 +2737,21 @@ my %hConfigDefine =
         &CFGDEF_REQUIRED => false,
     },
 
+    &CFGOPT_PG_DATABASE =>
+    {
+        &CFGDEF_GROUP => CFGOPTGRP_PG,
+        &CFGDEF_SECTION => CFGDEF_SECTION_STANZA,
+        &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
+        &CFGDEF_DEFAULT => 'postgres',
+        &CFGDEF_COMMAND => CFGOPT_PG_PORT,
+        &CFGDEF_DEPEND => CFGOPT_PG_PORT,
+    },
+
     &CFGOPT_PG_PATH =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_PG,
         &CFGDEF_SECTION => CFGDEF_SECTION_STANZA,
         &CFGDEF_TYPE => CFGDEF_TYPE_PATH,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_PG,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_PG,
         &CFGDEF_REQUIRED => true,
         &CFGDEF_NAME_ALT =>
         {
@@ -2689,10 +2776,9 @@ my %hConfigDefine =
 
     &CFGOPT_PG_PORT =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_PG,
         &CFGDEF_SECTION => CFGDEF_SECTION_STANZA,
         &CFGDEF_TYPE => CFGDEF_TYPE_INTEGER,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_PG,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_PG,
         &CFGDEF_DEFAULT => 5432,
         &CFGDEF_ALLOW_RANGE => [CFGDEF_DEFAULT_PROTOCOL_PORT_MIN, CFGDEF_DEFAULT_PROTOCOL_PORT_MAX],
         &CFGDEF_NAME_ALT =>
@@ -2729,10 +2815,9 @@ my %hConfigDefine =
 
     &CFGOPT_PG_USER =>
     {
+        &CFGDEF_GROUP => CFGOPTGRP_PG,
         &CFGDEF_SECTION => CFGDEF_SECTION_STANZA,
         &CFGDEF_TYPE => CFGDEF_TYPE_STRING,
-        &CFGDEF_PREFIX => CFGDEF_PREFIX_PG,
-        &CFGDEF_INDEX_TOTAL => CFGDEF_INDEX_PG,
         &CFGDEF_REQUIRED => false,
         &CFGDEF_COMMAND =>
         {
@@ -2812,15 +2897,37 @@ foreach my $strCommand (sort(keys(%{$rhCommandDefine})))
 }
 
 ####################################################################################################################################
+# Process option group defaults
+####################################################################################################################################
+foreach my $strGroup (sort(keys(%{$rhOptionGroupDefine})))
+{
+    # Error if prefix and index total are not both defined
+    if ((defined($rhOptionGroupDefine->{$strGroup}{&CFGDEF_PREFIX}) &&
+            !defined($rhOptionGroupDefine->{$strGroup}{&CFGDEF_INDEX_TOTAL})) ||
+        (!defined($rhOptionGroupDefine->{$strGroup}{&CFGDEF_PREFIX}) &&
+            defined($rhOptionGroupDefine->{$strGroup}{&CFGDEF_INDEX_TOTAL})))
+    {
+        confess &log(
+            ASSERT, "CFGDEF_PREFIX and CFGDEF_INDEX_TOTAL must both be defined (or neither) for option group '${strGroup}'");
+    }
+}
+
+####################################################################################################################################
 # Process option define defaults
 ####################################################################################################################################
 foreach my $strKey (sort(keys(%hConfigDefine)))
 {
-    # Error if prefix and index total are not both defined
-    if ((defined($hConfigDefine{$strKey}{&CFGDEF_PREFIX}) && !defined($hConfigDefine{$strKey}{&CFGDEF_INDEX_TOTAL})) ||
-        (!defined($hConfigDefine{$strKey}{&CFGDEF_PREFIX}) && defined($hConfigDefine{$strKey}{&CFGDEF_INDEX_TOTAL})))
+    my $rhOption = $hConfigDefine{$strKey};
+
+    # Error on invalid configuration
+    if (defined($rhOption->{&CFGDEF_INDEX_TOTAL}))
     {
-        confess &log(ASSERT, "CFGDEF_PREFIX and CFGDEF_INDEX_TOTAL must both be defined (or neither) for option '${strKey}'");
+        confess &log(ASSERT, "CFGDEF_INDEX_TOTAL cannot be defined for option '${strKey}'");
+    }
+
+    if (defined($rhOption->{&CFGDEF_PREFIX}))
+    {
+        confess &log(ASSERT, "CFGDEF_PREFIX cannot be defined for option '${strKey}'");
     }
 
     # If the define is a scalar then copy the entire define from the referenced option
@@ -2843,10 +2950,33 @@ foreach my $strKey (sort(keys(%hConfigDefine)))
         {
             $hConfigDefine{$strKey}{$strOptionDef} = $hConfigDefineOverride->{$strOptionDef};
         }
+
+        # Update option variable with new hash reference
+        $rhOption = $hConfigDefine{$strKey}
     }
 
-    # If the command section is a scalar then copy the section from the referenced option
-    if (defined($hConfigDefine{$strKey}{&CFGDEF_COMMAND}) && !ref($hConfigDefine{$strKey}{&CFGDEF_COMMAND}))
+    # If the option group is defined then copy configuration from the group to the option
+    if (defined($rhOption->{&CFGDEF_GROUP}))
+    {
+        my $rhGroup = $rhOptionGroupDefine->{$hConfigDefine{$strKey}{&CFGDEF_GROUP}};
+
+        $rhOption->{&CFGDEF_INDEX_TOTAL} = $rhGroup->{&CFGDEF_INDEX_TOTAL};
+        $rhOption->{&CFGDEF_PREFIX} = $rhGroup->{&CFGDEF_PREFIX};
+    }
+
+
+    # If command is not specified then the option is valid for all commands except version and help
+    if (!defined($rhOption->{&CFGDEF_COMMAND}))
+    {
+        foreach my $strCommand (sort(keys(%{$rhCommandDefine})))
+        {
+            next if $strCommand eq CFGCMD_HELP || $strCommand eq CFGCMD_VERSION;
+
+            $rhOption->{&CFGDEF_COMMAND}{$strCommand} = {};
+        }
+    }
+    # Else if the command section is a scalar then copy the section from the referenced option
+    elsif (defined($hConfigDefine{$strKey}{&CFGDEF_COMMAND}) && !ref($hConfigDefine{$strKey}{&CFGDEF_COMMAND}))
     {
         $hConfigDefine{$strKey}{&CFGDEF_COMMAND} =
             dclone($hConfigDefine{$hConfigDefine{$strKey}{&CFGDEF_COMMAND}}{&CFGDEF_COMMAND});
@@ -2924,13 +3054,13 @@ foreach my $strKey (sort(keys(%hConfigDefine)))
         $hConfigDefine{$strKey}{&CFGDEF_INDEX_TOTAL} = 1;
     }
 
-    # All int and float options must have an allow range
+    # All int, size and time options must have an allow range
     if (($hConfigDefine{$strKey}{&CFGDEF_TYPE} eq CFGDEF_TYPE_INTEGER ||
-         $hConfigDefine{$strKey}{&CFGDEF_TYPE} eq CFGDEF_TYPE_FLOAT ||
+         $hConfigDefine{$strKey}{&CFGDEF_TYPE} eq CFGDEF_TYPE_TIME ||
          $hConfigDefine{$strKey}{&CFGDEF_TYPE} eq CFGDEF_TYPE_SIZE) &&
          !(defined($hConfigDefine{$strKey}{&CFGDEF_ALLOW_RANGE}) || defined($hConfigDefine{$strKey}{&CFGDEF_ALLOW_LIST})))
     {
-        confess &log(ASSERT, "int/float option '${strKey}' must have allow range or list");
+        confess &log(ASSERT, "int/size/time option '${strKey}' must have allow range or list");
     }
 
     # Ensure all commands are valid
@@ -2962,6 +3092,16 @@ sub cfgDefineCommand
 }
 
 push @EXPORT, qw(cfgDefineCommand);
+
+####################################################################################################################################
+# Get option group definition
+####################################################################################################################################
+sub cfgDefineOptionGroup
+{
+    return dclone($rhOptionGroupDefine);
+}
+
+push @EXPORT, qw(cfgDefineOptionGroup);
 
 ####################################################################################################################################
 # Get list of all commands

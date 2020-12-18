@@ -28,6 +28,7 @@ STRING_EXTERN(WAL_SEGMENT_REGEXP_STR,                               WAL_SEGMENT_
 STRING_EXTERN(WAL_SEGMENT_PARTIAL_REGEXP_STR,                       WAL_SEGMENT_PARTIAL_REGEXP);
 STRING_EXTERN(WAL_SEGMENT_DIR_REGEXP_STR,                           WAL_SEGMENT_DIR_REGEXP);
 STRING_EXTERN(WAL_SEGMENT_FILE_REGEXP_STR,                          WAL_SEGMENT_FILE_REGEXP);
+STRING_EXTERN(WAL_TIMELINE_HISTORY_REGEXP_STR,                      WAL_TIMELINE_HISTORY_REGEXP);
 
 /***********************************************************************************************************************************
 Global error file constant
@@ -285,6 +286,18 @@ archiveAsyncExec(ArchiveMode archiveMode, const StringList *commandExec)
 }
 
 /**********************************************************************************************************************************/
+int
+archiveIdComparator(const void *item1, const void *item2)
+{
+    StringList *archiveSort1 = strLstNewSplitZ(*(String **)item1, "-");
+    StringList *archiveSort2 = strLstNewSplitZ(*(String **)item2, "-");
+    int int1 = atoi(strZ(strLstGet(archiveSort1, 1)));
+    int int2 = atoi(strZ(strLstGet(archiveSort2, 1)));
+
+    return (int1 - int2);
+}
+
+/**********************************************************************************************************************************/
 bool
 walIsPartial(const String *walSegment)
 {
@@ -320,10 +333,10 @@ walPath(const String *walFile, const String *pgPath, const String *command)
         {
             THROW_FMT(
                 OptionRequiredError,
-                "option '" CFGOPT_PG1_PATH "' must be specified when relative wal paths are used\n"
+                "option '%s' must be specified when relative wal paths are used\n"
                     "HINT: is %%f passed to %s instead of %%p?\n"
                     "HINT: PostgreSQL may pass relative paths even with %%p depending on the environment.",
-                strZ(command));
+                cfgOptionName(cfgOptPgPath), strZ(command));
         }
 
         // Get the working directory
@@ -340,10 +353,16 @@ walPath(const String *walFile, const String *pgPath, const String *command)
             char newWorkDir[4096];
             THROW_ON_SYS_ERROR(getcwd(newWorkDir, sizeof(newWorkDir)) == NULL, FormatError, "unable to get cwd");
 
-            // Error if the new working directory is not equal to the original current working directory.  This means that
-            // PostgreSQL and pgBackrest have a different idea about where the PostgreSQL data directory is located.
+            // Error if the new working directory is not equal to the original current working directory. This means that PostgreSQL
+            // and pgBackrest have a different idea about where the PostgreSQL data directory is located.
             if (strcmp(currentWorkDir, newWorkDir) != 0)
-                THROW_FMT(AssertError, "working path '%s' is not the same path as '%s'", currentWorkDir, strZ(pgPath));
+            {
+                THROW_FMT(
+                    OptionInvalidValueError,
+                    PG_NAME " working directory '%s' is not the same as option %s '%s'\n"
+                        "HINT: is the " PG_NAME " data_directory configured the same as the %s option?",
+                    currentWorkDir, cfgOptionName(cfgOptPgPath), strZ(pgPath), cfgOptionName(cfgOptPgPath));
+            }
         }
 
         result = strNewFmt("%s/%s", strZ(pgPath), strZ(walFile));

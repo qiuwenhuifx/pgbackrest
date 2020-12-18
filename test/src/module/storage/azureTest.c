@@ -182,15 +182,15 @@ testRun(void)
 
         StringList *argList = strLstNew();
         strLstAddZ(argList, "--" CFGOPT_STANZA "=test");
-        strLstAddZ(argList, "--" CFGOPT_REPO1_TYPE "=" STORAGE_AZURE_TYPE);
-        strLstAddZ(argList, "--" CFGOPT_REPO1_PATH "=/repo");
-        strLstAddZ(argList, "--" CFGOPT_REPO1_AZURE_CONTAINER "=" TEST_CONTAINER);
-        setenv("PGBACKREST_" CFGOPT_REPO1_AZURE_ACCOUNT, TEST_ACCOUNT, true);
-        setenv("PGBACKREST_" CFGOPT_REPO1_AZURE_KEY, TEST_KEY_SHARED, true);
+        hrnCfgArgRawZ(argList, cfgOptRepoType, STORAGE_AZURE_TYPE);
+        hrnCfgArgRawZ(argList, cfgOptRepoPath, "/repo");
+        hrnCfgArgRawZ(argList, cfgOptRepoAzureContainer, TEST_CONTAINER);
+        hrnCfgEnvRawZ(cfgOptRepoAzureAccount, TEST_ACCOUNT);
+        hrnCfgEnvRawZ(cfgOptRepoAzureKey, TEST_KEY_SHARED);
         harnessCfgLoad(cfgCmdArchivePush, argList);
 
         Storage *storage = NULL;
-        TEST_ASSIGN(storage, storageRepoGet(strNew(STORAGE_AZURE_TYPE), false), "get repo storage");
+        TEST_ASSIGN(storage, storageRepoGet(0, false), "get repo storage");
         TEST_RESULT_STR_Z(storage->path, "/repo", "    check path");
         TEST_RESULT_STR(((StorageAzure *)storage->driver)->account, TEST_ACCOUNT_STR, "    check account");
         TEST_RESULT_STR(((StorageAzure *)storage->driver)->container, TEST_CONTAINER_STR, "    check container");
@@ -214,7 +214,7 @@ testRun(void)
             (StorageAzure *)storageDriver(
                 storageAzureNew(
                     STRDEF("/repo"), false, NULL, TEST_CONTAINER_STR, TEST_ACCOUNT_STR, storageAzureKeyTypeShared,
-                    TEST_KEY_SHARED_STR, 16, NULL, 443, 1000, true, NULL, NULL)),
+                    TEST_KEY_SHARED_STR, 16, NULL, STRDEF("blob.core.windows.net"), 443, 1000, true, NULL, NULL)),
             "new azure storage - shared key");
 
         // -------------------------------------------------------------------------------------------------------------------------
@@ -253,7 +253,7 @@ testRun(void)
             (StorageAzure *)storageDriver(
                 storageAzureNew(
                     STRDEF("/repo"), false, NULL, TEST_CONTAINER_STR, TEST_ACCOUNT_STR, storageAzureKeyTypeSas, TEST_KEY_SAS_STR,
-                    16, NULL, 443, 1000, true, NULL, NULL)),
+                    16, NULL, STRDEF("blob.core.usgovcloudapi.net"), 443, 1000, true, NULL, NULL)),
             "new azure storage - sas key");
 
         query = httpQueryAdd(httpQueryNewP(), STRDEF("a"), STRDEF("b"));
@@ -261,7 +261,7 @@ testRun(void)
 
         TEST_RESULT_VOID(storageAzureAuth(storage, HTTP_VERB_GET_STR, STRDEF("/path/file"), query, dateTime, header), "auth");
         TEST_RESULT_STR_Z(
-            httpHeaderToLog(header), "{content-length: '66', host: 'account.blob.core.windows.net'}", "check headers");
+            httpHeaderToLog(header), "{content-length: '66', host: 'account.blob.core.usgovcloudapi.net'}", "check headers");
         TEST_RESULT_STR_Z(httpQueryRenderP(query), "a=b&sig=key", "check query");
     }
 
@@ -288,18 +288,18 @@ testRun(void)
 
                 StringList *argList = strLstNew();
                 strLstAddZ(argList, "--" CFGOPT_STANZA "=test");
-                strLstAddZ(argList, "--" CFGOPT_REPO1_TYPE "=" STORAGE_AZURE_TYPE);
-                strLstAddZ(argList, "--" CFGOPT_REPO1_PATH "=/");
-                strLstAddZ(argList, "--" CFGOPT_REPO1_AZURE_CONTAINER "=" TEST_CONTAINER);
-                strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_AZURE_HOST "=%s", strZ(hrnServerHost())));
-                strLstAdd(argList, strNewFmt("--" CFGOPT_REPO1_AZURE_PORT "=%u", hrnServerPort(0)));
-                strLstAdd(argList, strNewFmt("--%s" CFGOPT_REPO1_AZURE_VERIFY_TLS, testContainer() ? "" : "no-"));
-                setenv("PGBACKREST_" CFGOPT_REPO1_AZURE_ACCOUNT, TEST_ACCOUNT, true);
-                setenv("PGBACKREST_" CFGOPT_REPO1_AZURE_KEY, TEST_KEY_SHARED, true);
+                hrnCfgArgRawZ(argList, cfgOptRepoType, STORAGE_AZURE_TYPE);
+                hrnCfgArgRawZ(argList, cfgOptRepoPath, "/");
+                hrnCfgArgRawZ(argList, cfgOptRepoAzureContainer, TEST_CONTAINER);
+                hrnCfgArgRaw(argList, cfgOptRepoAzureHost, hrnServerHost());
+                hrnCfgArgRawFmt(argList, cfgOptRepoAzurePort, "%u", hrnServerPort(0));
+                hrnCfgArgRawBool(argList, cfgOptRepoAzureVerifyTls, testContainer());
+                hrnCfgEnvRawZ(cfgOptRepoAzureAccount, TEST_ACCOUNT);
+                hrnCfgEnvRawZ(cfgOptRepoAzureKey, TEST_KEY_SHARED);
                 harnessCfgLoad(cfgCmdArchivePush, argList);
 
                 Storage *storage = NULL;
-                TEST_ASSIGN(storage, storageRepoGet(strNew(STORAGE_AZURE_TYPE), true), "get repo storage");
+                TEST_ASSIGN(storage, storageRepoGet(0, true), "get repo storage");
 
                 driver = (StorageAzure *)storage->driver;
                 TEST_RESULT_STR(driver->host, hrnServerHost(), "    check host");
@@ -727,11 +727,11 @@ testRun(void)
 
                 hrnServerScriptClose(service);
 
-                strLstAddZ(argList, "--" CFGOPT_REPO1_AZURE_KEY_TYPE "=" STORAGE_AZURE_KEY_TYPE_SAS);
-                setenv("PGBACKREST_" CFGOPT_REPO1_AZURE_KEY, TEST_KEY_SAS, true);
+                hrnCfgArgRawZ(argList, cfgOptRepoAzureKeyType, STORAGE_AZURE_KEY_TYPE_SAS);
+                hrnCfgEnvRawZ(cfgOptRepoAzureKey, TEST_KEY_SAS);
                 harnessCfgLoad(cfgCmdArchivePush, argList);
 
-                TEST_ASSIGN(storage, storageRepoGet(strNew(STORAGE_AZURE_TYPE), true), "get repo storage");
+                TEST_ASSIGN(storage, storageRepoGet(0, true), "get repo storage");
 
                 driver = (StorageAzure *)storage->driver;
                 TEST_RESULT_PTR_NE(driver->sasKey, NULL, "check sas key");
