@@ -328,12 +328,14 @@ testRun(void)
         TEST_ASSIGN(listVar, varNewVarLst(varLstNew()), "new empty");
 
         TEST_RESULT_INT(varLstSize(varVarLst(listVar)), 0, "    empty size");
+        TEST_RESULT_BOOL(varLstEmpty(varVarLst(listVar)), true, "    empty");
         TEST_RESULT_PTR(varVarLst(NULL), NULL, "get null var list");
 
         TEST_RESULT_PTR(varLstAdd(varVarLst(listVar), varNewBool(true)), varVarLst(listVar), "    add bool");
         TEST_RESULT_PTR(varLstAdd(varVarLst(listVar), varNewInt(55)), varVarLst(listVar), "    add int");
 
         TEST_RESULT_INT(varLstSize(varVarLst(listVar)), 2, "    size with items");
+        TEST_RESULT_BOOL(varLstEmpty(varVarLst(listVar)), false, "    not empty");
 
         TEST_RESULT_BOOL(varBool(varLstGet(varVarLst(listVar), 0)), true, "    get bool");
         TEST_RESULT_INT(varInt(varLstGet(varVarLst(listVar), 1)), 55, "    get int");
@@ -398,7 +400,7 @@ testRun(void)
         varLstAdd(list, varNewStrZ("string1"));
         varLstAdd(list, varNewStrZ("string2"));
 
-        TEST_RESULT_STR_Z(strLstJoin(strLstNewVarLst(varLstDup(list)), ", "), "string1, string2", "duplicate variant list");
+        TEST_RESULT_STRLST_Z(strLstNewVarLst(varLstDup(list)), "string1\nstring2\n", "duplicate variant list");
 
         TEST_RESULT_PTR(varLstDup(NULL), NULL, "duplicate null list");
     }
@@ -411,8 +413,7 @@ testRun(void)
         strLstAdd(listStr, strNew("string1"));
         strLstAdd(listStr, strNew("string2"));
 
-        TEST_RESULT_STR_Z(
-            strLstJoin(strLstNewVarLst(varLstNewStrLst(listStr)), ", "), "string1, string2", "variant list from string list");
+        TEST_RESULT_STRLST_Z(strLstNewVarLst(varLstNewStrLst(listStr)), "string1\nstring2\n", "variant list from string list");
 
         TEST_RESULT_PTR(varLstNewStrLst(NULL), NULL, "variant list from null string list");
     }

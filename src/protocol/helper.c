@@ -10,8 +10,8 @@ Protocol Helper
 #include "common/exec.h"
 #include "common/memContext.h"
 #include "config/config.intern.h"
-#include "config/define.h"
 #include "config/exec.h"
+#include "config/parse.h"
 #include "config/protocol.h"
 #include "postgres/version.h"
 #include "protocol/helper.h"
@@ -85,7 +85,18 @@ repoIsLocalVerify(void)
 {
     FUNCTION_TEST_VOID();
 
-    if (!repoIsLocal(cfgOptionGroupIdxDefault(cfgOptGrpRepo)))
+    repoIsLocalVerifyIdx(cfgOptionGroupIdxDefault(cfgOptGrpRepo));
+
+    FUNCTION_TEST_RETURN_VOID();
+}
+
+/**********************************************************************************************************************************/
+void
+repoIsLocalVerifyIdx(unsigned int repoIdx)
+{
+    FUNCTION_TEST_VOID();
+
+    if (!repoIsLocal(repoIdx))
         THROW_FMT(HostInvalidError, "%s command must be run on the repository host", cfgCommandName(cfgCommand()));
 
     FUNCTION_TEST_RETURN_VOID();
@@ -136,13 +147,10 @@ protocolLocalParam(ProtocolStorageType protocolStorageType, unsigned int hostIdx
         // Add the process id -- used when more than one process will be called
         kvPut(optionReplace, VARSTR(CFGOPT_PROCESS_STR), VARUINT(processId));
 
-        // Add the group default id
-        kvPut(
-            optionReplace,
-            VARSTRZ(cfgOptionName(protocolStorageType == protocolStorageTypeRepo ? cfgOptRepo : cfgOptPg)),
-            VARUINT(
-                cfgOptionGroupIdxToKey(
-                    protocolStorageType == protocolStorageTypeRepo ? cfgOptGrpRepo : cfgOptGrpPg, hostIdx)));
+        // Add the pg default. Don't do this for repos because the repo default should come from the user or the local should
+        // handle all the repos equally. Repos don't get special handling like pg primaries or standbys.
+        if (protocolStorageType == protocolStorageTypePg)
+            kvPut(optionReplace, VARSTRDEF(CFGOPT_PG), VARUINT(cfgOptionGroupIdxToKey(cfgOptGrpPg, hostIdx)));
 
         // Add the remote type
         kvPut(optionReplace, VARSTR(CFGOPT_REMOTE_TYPE_STR), VARSTR(protocolStorageTypeStr(protocolStorageType)));
@@ -341,42 +349,29 @@ protocolRemoteParam(ProtocolStorageType protocolStorageType, unsigned int hostId
         cfgOptionIdxSource(optConfigPath, hostIdx) != cfgSourceDefault ? VARSTR(cfgOptionIdxStr(optConfigPath, hostIdx)) : NULL);
 
     // Update/remove repo/pg options that are sent to the remote
-    const String *repoHostPrefix = STR(cfgDefOptionName(cfgOptRepoHost));
-    const String *pgHostPrefix = STR(cfgDefOptionName(cfgOptPgHost));
-
     for (ConfigOption optionId = 0; optionId < CFG_OPTION_TOTAL; optionId++)
     {
         // Skip options that are not part of a group
         if (!cfgOptionGroup(optionId))
             continue;
 
-        const String *optionDefName = STR(cfgDefOptionName(optionId));
-        unsigned int groupId = cfgOptionGroupId(optionId);
         bool remove = false;
         bool skipHostZero = false;
 
-        // Remove repo host options that are not needed on the remote. The remote is not expecting to see host settings so it could
-        // get confused about the locality of the repo, i.e. local or remote. Also remove repo options when the remote type is pg
-        // since they won't be used.
-        if (groupId == cfgOptGrpRepo)
+        // Remove repo options when the remote type is pg since they won't be used
+        if (cfgOptionGroupId(optionId) == cfgOptGrpRepo)
         {
-            remove = protocolStorageType == protocolStorageTypePg || strBeginsWith(optionDefName, repoHostPrefix);
+            remove = protocolStorageType == protocolStorageTypePg;
         }
         // Remove pg host options that are not needed on the remote
         else
         {
-            ASSERT(groupId == cfgOptGrpPg);
+            ASSERT(cfgOptionGroupId(optionId) == cfgOptGrpPg);
 
             // Remove unrequired/defaulted pg options when the remote type is repo since they won't be used
             if (protocolStorageType == protocolStorageTypeRepo)
             {
-                remove = !cfgDefOptionRequired(cfgCommand(), optionId) || cfgDefOptionDefault(cfgCommand(), optionId) != NULL;
-            }
-            // The remote is not expecting to see host settings so it could get confused about the locality of pg, i.e. local or
-            // remote.
-            else if (strBeginsWith(optionDefName, pgHostPrefix))
-            {
-                remove = true;
+                remove = !cfgParseOptionRequired(cfgCommand(), optionId) || cfgParseOptionDefault(cfgCommand(), optionId) != NULL;
             }
             // Move pg options to host index 0 (key 1) so they will be in the default index on the remote host
             else
@@ -406,18 +401,9 @@ protocolRemoteParam(ProtocolStorageType protocolStorageType, unsigned int hostId
         }
     }
 
-    // Set local so host settings configured on the remote will not accidentally be picked up
-    kvPut(
-        optionReplace,
-        protocolStorageType == protocolStorageTypeRepo ?
-            VARSTRZ(cfgOptionIdxName(cfgOptRepoLocal, hostIdx)) : VARSTRZ(cfgOptionKeyIdxName(cfgOptPgLocal, 0)),
-        BOOL_TRUE_VAR);
-
-    // Set default to make it explicit which host will be used on the remote
-    kvPut(
-        optionReplace,
-        VARSTRZ(cfgOptionName(protocolStorageType == protocolStorageTypeRepo ? cfgOptRepo : cfgOptPg)),
-        VARUINT(protocolStorageType == protocolStorageTypeRepo ? cfgOptionGroupIdxToKey(cfgOptGrpRepo, hostIdx) : 1));
+    // Set repo default so the remote only operates on a single repo
+    if (protocolStorageType == protocolStorageTypeRepo)
+        kvPut(optionReplace, VARSTRDEF(CFGOPT_REPO), VARUINT(cfgOptionGroupIdxToKey(cfgOptGrpRepo, hostIdx)));
 
     // Add the process id if not set. This means that the remote is being started from the main process and should always get a
     // process id of 0.
@@ -427,17 +413,6 @@ protocolRemoteParam(ProtocolStorageType protocolStorageType, unsigned int hostId
     // Don't pass log-path or lock-path since these are host specific
     kvPut(optionReplace, VARSTR(CFGOPT_LOG_PATH_STR), NULL);
     kvPut(optionReplace, VARSTR(CFGOPT_LOCK_PATH_STR), NULL);
-
-    // ??? Don't pass restore options which the remote doesn't need and are likely to contain spaces because they might get mangled
-    // on the way to the remote depending on how SSH is set up on the server.  This code should be removed when option passing with
-    // spaces is resolved.
-    kvPut(optionReplace, VARSTR(CFGOPT_TYPE_STR), NULL);
-    kvPut(optionReplace, VARSTR(CFGOPT_TARGET_STR), NULL);
-    kvPut(optionReplace, VARSTR(CFGOPT_TARGET_EXCLUSIVE_STR), NULL);
-    kvPut(optionReplace, VARSTR(CFGOPT_TARGET_ACTION_STR), NULL);
-    kvPut(optionReplace, VARSTR(CFGOPT_TARGET_STR), NULL);
-    kvPut(optionReplace, VARSTR(CFGOPT_TARGET_TIMELINE_STR), NULL);
-    kvPut(optionReplace, VARSTR(CFGOPT_RECOVERY_OPTION_STR), NULL);
 
     // Only enable file logging on the remote when requested
     kvPut(
@@ -520,19 +495,19 @@ protocolRemoteGet(ProtocolStorageType protocolStorageType, unsigned int hostIdx)
                 PROTOCOL_SERVICE_REMOTE_STR, execIoRead(protocolHelperClient->exec), execIoWrite(protocolHelperClient->exec));
 
             // Get cipher options from the remote if none are locally configured
-            if (isRepo && strEq(cfgOptionStr(cfgOptRepoCipherType), CIPHER_TYPE_NONE_STR))
+            if (isRepo && strEq(cfgOptionIdxStr(cfgOptRepoCipherType, hostIdx), CIPHER_TYPE_NONE_STR))
             {
                 // Options to query
                 VariantList *param = varLstNew();
-                varLstAdd(param, varNewStrZ(cfgOptionName(cfgOptRepoCipherType)));
-                varLstAdd(param, varNewStrZ(cfgOptionName(cfgOptRepoCipherPass)));
+                varLstAdd(param, varNewStrZ(cfgOptionIdxName(cfgOptRepoCipherType, hostIdx)));
+                varLstAdd(param, varNewStrZ(cfgOptionIdxName(cfgOptRepoCipherPass, hostIdx)));
 
                 VariantList *optionList = configProtocolOption(protocolHelperClient->client, param);
 
                 if (!strEq(varStr(varLstGet(optionList, 0)), CIPHER_TYPE_NONE_STR))
                 {
-                    cfgOptionSet(cfgOptRepoCipherType, cfgSourceConfig, varLstGet(optionList, 0));
-                    cfgOptionSet(cfgOptRepoCipherPass, cfgSourceConfig, varLstGet(optionList, 1));
+                    cfgOptionIdxSet(cfgOptRepoCipherType, hostIdx, cfgSourceConfig, varLstGet(optionList, 0));
+                    cfgOptionIdxSet(cfgOptRepoCipherPass, hostIdx, cfgSourceConfig, varLstGet(optionList, 1));
                 }
             }
 

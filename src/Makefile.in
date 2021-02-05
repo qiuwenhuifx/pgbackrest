@@ -117,7 +117,6 @@ SRCS = \
 	common/user.c \
 	common/wait.c \
 	config/config.c \
-	config/define.c \
 	config/exec.c \
 	config/load.c \
 	config/parse.c \
@@ -176,9 +175,9 @@ SRCS = \
 # Compiler options
 ####################################################################################################################################
 CC = @CC@
-CFLAGS = @CFLAGS@
+CFLAGS = $(CFLAGS_EXTRA) @CFLAGS@
 CPPFLAGS = @CPPFLAGS@ -I@srcdir@
-LDFLAGS = @LDFLAGS@
+LDFLAGS = $(LDFLAGS_EXTRA) @LDFLAGS@
 LIBS = @LIBS@
 
 ####################################################################################################################################
