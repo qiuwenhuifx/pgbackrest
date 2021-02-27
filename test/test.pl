@@ -135,7 +135,7 @@ my $bClean;
 my $bCleanOnly;
 my $strLogLevel = lc(INFO);
 my $strLogLevelTest = lc(OFF);
-my $strLogLevelTestFile = lc(TRACE);
+my $strLogLevelTestFile = lc(DEBUG);
 my $bNoLogTimestamp = false;
 my $bVmOut = false;
 my @stryModule;
@@ -548,8 +548,11 @@ eval
                         trim($strConfigure) . "\n\n# Generated from src/build/configure.ac sha1 ${strConfigureAcHash}\n";
 
                     # Remove unused options from help
-                    $strConfigure =~ s/^  --((?!bin).)*dir=DIR.*\n//mg;
-                    $strConfigure =~ s/^  --sbindir=DIR.*\n//mg;
+                    my $strDirList =
+                        "sbin|libexec|sysconf|sharedstate|localstate|runstate|lib|include|oldinclude|dataroot|data|info" .
+                        "|locale|man|doc|html|dvi|pdf|ps";
+
+                    $strConfigure =~ s/^  --(${strDirList})*dir=DIR.*\n//mg;
 
                     # Save into the src dir
                     $oStorageBackRest->put(
@@ -642,7 +645,8 @@ eval
             }
 
             executeTest(
-                "rm -rf ${strTestPath}/temp ${strTestPath}/test-* ${strTestPath}/data-*" . ($bDev ? '' : " ${strTestPath}/gcov-*"));
+                "chmod 700 -R ${strTestPath}/test-* 2>&1 || true && rm -rf ${strTestPath}/temp ${strTestPath}/test-*" .
+                    " ${strTestPath}/data-*" . ($bDev ? '' : " ${strTestPath}/gcov-*"));
             $oStorageTest->pathCreate("${strTestPath}/temp", {strMode => '0770', bIgnoreExists => true, bCreateParent => true});
 
             # Remove old lcov dirs -- do it this way so the dirs stay open in finder/explorer, etc.

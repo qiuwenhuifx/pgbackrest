@@ -1510,6 +1510,8 @@
 
         <p>Generally it is best to retain as many backups as possible to provide a greater window for <link section="/pitr">Point-in-Time Recovery</link>, but practical concerns such as disk space must also be considered.  Retention options remove older backups once they are no longer needed.</p>
 
+        <cmd-description key="expire"/>
+
         <!-- SECTION => RETENTION - FULL -->
         <section id="full">
             <title>Full Backup Retention</title>
@@ -1546,7 +1548,7 @@
                 <execute user="postgres" output="y">
                     <exe-cmd>{[project-exe]} {[dash]}-stanza={[postgres-cluster-demo]} --type=full
                         --log-level-console=info backup</exe-cmd>
-                    <exe-highlight>expire full backup set repo1\: {[backup-full-first]}|archive retention on backup {[backup-full-second]}|remove archive</exe-highlight>
+                    <exe-highlight>expire full backup set {[backup-full-first]}|archive retention on backup {[backup-full-second]}|remove archive</exe-highlight>
                 </execute>
             </execute-list>
 
@@ -1591,7 +1593,7 @@
                 <execute user="postgres" output="y">
                     <exe-cmd>{[project-exe]} {[dash]}-stanza={[postgres-cluster-demo]} --type=diff
                         --log-level-console=info backup</exe-cmd>
-                    <exe-highlight>expire diff backup set repo1: {[backup-diff-second]}</exe-highlight>
+                    <exe-highlight>expire diff backup set {[backup-diff-second]}</exe-highlight>
                 </execute>
             </execute-list>
         </section>

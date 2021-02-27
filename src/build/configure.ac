@@ -1,7 +1,7 @@
 # Initialize configuration
 # ----------------------------------------------------------------------------------------------------------------------------------
 AC_PREREQ([2.69])
-AC_INIT([pgBackRest], [2.32dev])
+AC_INIT([pgBackRest], [2.33dev])
 AC_CONFIG_SRCDIR([version.h])
 AC_CONFIG_AUX_DIR(build)
 
@@ -149,6 +149,13 @@ AC_CHECK_LIB(
                     #endif])],
             [AC_DEFINE(HAVE_LIBZST) AC_SUBST(LIBS, "${LIBS} -lzstd")])],
         [AC_MSG_ERROR([header file <zstd.h> is required])])])
+
+# Set configuration path
+# ----------------------------------------------------------------------------------------------------------------------------------
+AC_ARG_WITH(
+    [configdir], [AS_HELP_STRING([--with-configdir=DIR], [default configuration path])],
+    [AC_DEFINE_UNQUOTED([CFGOPTDEF_CONFIG_PATH], ["${withval}"])],
+    [AC_DEFINE_UNQUOTED([CFGOPTDEF_CONFIG_PATH], ["/etc/" PROJECT_BIN])])
 
 # Write output
 # ----------------------------------------------------------------------------------------------------------------------------------
